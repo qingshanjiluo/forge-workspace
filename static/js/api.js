@@ -19,8 +19,15 @@ const API = {
     }
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('application/json')) {
-      return res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        const err = new Error((data && data.error) ? data.error : ('请求失败 (' + res.status + ')'));
+        err.status = res.status;
+        throw err;
+      }
+      return data;
     }
+    if (!res.ok) throw new Error('请求失败 (' + res.status + ')');
     return { error: '非JSON响应', status: res.status };
   },
   get(path) { return this.request('GET', path); },

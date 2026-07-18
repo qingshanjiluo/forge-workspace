@@ -452,7 +452,7 @@ post('/api/meetings/:id/chat', async (request, env) => {
         const mt=message_type||'text';
         content = (mt==='image') ? content : content.trim().substring(0,5000);
         const md=meta_data?JSON.stringify(meta_data):'{}';
-        if (mt==='image'&&content&&content.length>200000) return errorResponse('Image too large',400);
+        if (mt==='image'&&content&&content.length>1300000) return errorResponse('Image too large',400);
     const {results}=await env.DB.prepare("INSERT INTO meeting_messages (meeting_id,user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(id,user.id,content,mt,md).all();
     let todoCreated=null;
     if (mt==='todo'||content.startsWith('/todo ')) {
@@ -501,7 +501,7 @@ post('/api/chat', async (request, env) => {
         const mt=message_type||'text';
         content = (mt==='image') ? content : content.trim().substring(0,5000);
         const md=meta_data?JSON.stringify(meta_data):'{}';
-        if (mt==='image'&&content&&content.length>200000) return errorResponse('Image too large',400);
+        if (mt==='image'&&content&&content.length>1300000) return errorResponse('Image too large',400);
     const {results}=await env.DB.prepare("INSERT INTO public_chat_messages (user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(user.id,content,mt,md).all();
     let todoCreated=null;
     if (content.startsWith('/todo ')) {

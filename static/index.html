@@ -1065,6 +1065,64 @@
 
     <script src="/js/chat-common.js"></script>
     <script>
+        // ======================== IMAGE HELPERS ========================
+        // Compress an image File to a JPEG/PNG data URL. If the source is larger
+        // than maxBytes (default 2MB) it is downscaled/quality-reduced so the
+        // resulting base64 stays well under backend + D1 limits.
+        async function compressImageFile(file, maxBytes = 2 * 1024 * 1024) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onerror = () => reject(new Error('读取文件失败'));
+                reader.onload = function(ev) {
+                    const dataUrl = ev.target.result;
+                    // small enough already -> send as-is
+                    if (dataUrl.length <= maxBytes) { resolve(dataUrl); return; }
+                    const img = new Image();
+                    img.onerror = () => reject(new Error('图片解析失败'));
+                    img.onload = function() {
+                        let { width, height } = img;
+                        let scale = 1;
+                        // long edge capped at 1600px
+                        const maxEdge = 1600;
+                        if (width > maxEdge || height > maxEdge) {
+                            scale = Math.min(maxEdge / width, maxEdge / height);
+                            width = Math.round(width * scale);
+                            height = Math.round(height * scale);
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width; canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        let quality = 0.82;
+                        let out = canvas.toDataURL('image/jpeg', quality);
+                        // progressively lower quality until under the limit
+                        while (out.length > maxBytes && quality > 0.3) {
+                            quality -= 0.1;
+                            out = canvas.toDataURL('image/jpeg', quality);
+                        }
+                        resolve(out);
+                    };
+                    img.src = dataUrl;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // Convert an existing data URL (e.g. canvas PNG) to a compact JPEG data URL.
+        function compressDataUrlToJpeg(dataUrl, quality = 0.85) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width; canvas.height = img.height;
+                    canvas.getContext('2d').drawImage(img, 0, 0);
+                    resolve(canvas.toDataURL('image/jpeg', quality));
+                };
+                img.onerror = function() { resolve(dataUrl); };
+                img.src = dataUrl;
+            });
+        }
+
         // ======================== STATE ========================
         let currentUser = null;
         let currentPage = 'dashboard';
@@ -1907,7 +1965,7 @@
         function miniUndo() { if (miniHistory.length < 2) return; miniHistory.pop(); const img = new Image(); img.onload = () => { miniCtx.clearRect(0,0,miniCanvas.width,miniCanvas.height); miniCtx.drawImage(img,0,0); }; img.src = miniHistory[miniHistory.length-1]; }
         function miniClear() { miniHistory.push(miniCanvas.toDataURL()); miniCtx.clearRect(0,0,miniCanvas.width,miniCanvas.height); }
         async function miniSendAsImage() {
-            const dataUrl = miniCanvas.toDataURL('image/png');
+            const dataUrl = compressDataUrlToJpeg(miniCanvas.toDataURL('image/png'));
             try {
                 if (miniDrawContext.type === 'meeting') {
                     await API.post(`/api/meetings/${miniDrawContext.id}/chat`, { content: dataUrl, message_type: 'image' });
@@ -2275,12 +2333,19 @@
             document.getElementById('chatImageBtn')?.addEventListener('click', function() { document.getElementById('chatImageInput').click(); });
             document.getElementById('chatImageInput')?.addEventListener('change', async function(e) {
                 const file = e.target.files[0]; if (!file) return;
-                const reader = new FileReader();
-                reader.onload = async function(ev) {
-                    await API.post(`/api/meetings/${meetingChatState.meetingId}/chat`, { content: ev.target.result, message_type: 'image' });
+                const btn = document.getElementById('chatImageBtn');
+                const oldHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                try {
+                    const dataUrl = await compressImageFile(file);
+                    await API.post(`/api/meetings/${meetingChatState.meetingId}/chat`, { content: dataUrl, message_type: 'image' });
+                    pollMeetingMessages();
+                } catch (err) {
+                    alert('图片发送失败：' + (err && err.message ? err.message : '未知错误'));
+                } finally {
+                    btn.innerHTML = oldHtml;
                     e.target.value = '';
-                };
-                reader.readAsDataURL(file);
+                }
             });
             document.getElementById('chatInput')?.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMeetingMessage(); }
@@ -2487,12 +2552,19 @@
             document.getElementById('pubChatImageBtn')?.addEventListener('click', function() { document.getElementById('pubChatImageInput').click(); });
             document.getElementById('pubChatImageInput')?.addEventListener('change', async function(e) {
                 const file = e.target.files[0]; if (!file) return;
-                const reader = new FileReader();
-                reader.onload = async function(ev) {
-                    await API.post('/api/chat', { content: ev.target.result, message_type: 'image' });
+                const btn = document.getElementById('pubChatImageBtn');
+                const oldHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                try {
+                    const dataUrl = await compressImageFile(file);
+                    await API.post('/api/chat', { content: dataUrl, message_type: 'image' });
+                    pollPublicMessages();
+                } catch (err) {
+                    alert('图片发送失败：' + (err && err.message ? err.message : '未知错误'));
+                } finally {
+                    btn.innerHTML = oldHtml;
                     e.target.value = '';
-                };
-                reader.readAsDataURL(file);
+                }
             });
             document.getElementById('pubChatInput')?.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPublicMessage(); }
