@@ -1,23 +1,9 @@
 name = "forge-workspace"
-main = "src/index.js"
 compatibility_date = "2024-07-01"
 compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "static"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "forge-workspace-db"
 database_id = "bf49d06e-45a2-4eb3-b210-5cd22992257e"
-
-[env.production]
-[[env.production.d1_databases]]
-binding = "DB"
-database_name = "forge-workspace-db"
-database_id = "bf49d06e-45a2-4eb3-b210-5cd22992257e"
-
-[env.preview]
-[[env.preview.d1_databases]]
-binding = "DB"
-database_name = "forge-workspace-db"
-database_id = "bf49d06e-45a2-4eb3-b210-5cd22992257e"
-
-pages_build_output_dir = "static"
