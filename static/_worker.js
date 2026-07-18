@@ -355,7 +355,8 @@ post('/api/meetings/:id/chat', async (request, env) => {
     if (!content||content.trim().length===0) return errorResponse('Content required',400);
     await env.DB.prepare('SELECT id FROM meetings WHERE id=?').bind(id).all();
     content=content.trim().substring(0,5000);
-    const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):'{}';
+        const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):'{}';
+        if (mt==='image'&&content&&content.length>200000) return errorResponse('Image too large',400);
     const {results}=await env.DB.prepare("INSERT INTO meeting_messages (meeting_id,user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(id,user.id,content,mt,md).all();
     let todoCreated=null;
     if (mt==='todo'||content.startsWith('/todo ')) {
@@ -401,7 +402,8 @@ post('/api/chat', async (request, env) => {
     let {content,message_type,meta_data}=await request.json();
     if (!content||content.trim().length===0) return errorResponse('Content required',400);
     content=content.trim().substring(0,5000);
-    const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):'{}';
+        const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):'{}';
+        if (mt==='image'&&content&&content.length>200000) return errorResponse('Image too large',400);
     const {results}=await env.DB.prepare("INSERT INTO public_chat_messages (user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(user.id,content,mt,md).all();
     let todoCreated=null;
     if (content.startsWith('/todo ')) {
@@ -745,6 +747,14 @@ get('/api/auth/tokens', async (request, env) => { return handleRequest(new Reque
 post('/api/auth/tokens', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
 get('/api/users', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/users','/api/admin/users'), request), env); });
 del('/api/auth/tokens/:id', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
+put('/api/admin/users/:id/group', async (request, env) => {
+  try { const user=await requireAuth(request,env); requireAdmin(user); const {id}=request.params; const {group_id}=await request.json();
+    const existing=await env.DB.prepare('SELECT id FROM users WHERE id=?').bind(id).all();
+    if (existing.results.length===0) return errorResponse('Not found',404);
+    await env.DB.prepare('UPDATE users SET group_id=? WHERE id=?').bind(group_id||null,id).run();
+    return jsonResponse({success:true});
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
 post('/api/admin/users/:id/reset-password', async (request, env) => {
   try { const user=await requireAuth(request,env); requireAdmin(user); const {id}=request.params; const {password}=await request.json();
     if (!password||password.length<4) return errorResponse('Password too short',400);
@@ -783,7 +793,16 @@ post('/api/announcements/scroll', async (request, env) => {
     return jsonResponse({success:true});
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
-post('/api/users', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/users','/api/admin/users'), request), env); });
+
+// ===================== IMAGE UPLOAD =====================
+post('/api/upload/image', async (request, env) => {
+  try { const user=await requireAuth(request,env); const {image,type}=await request.json();
+    if (!image||image.length>500000) return errorResponse('Invalid or too large',400);
+    const imgType=type||'image/png';
+    const dataUrl=`data:${imgType};base64,${image.replace(/^data:image\/\w+;base64,/,'')}`;
+    return jsonResponse({url:dataUrl});
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
 
 // ===================== LINK PREVIEW =====================
 get('/api/link-preview', async (request, env) => {

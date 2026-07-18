@@ -69,6 +69,10 @@ function renderMessageContent(m) {
             </div>`;
     }
 
+    if (type === 'image') {
+        return `<img src="${escapeHtml(m.content)}" class="chat-image" onclick="window.open(this.src)" loading="lazy">`;
+    }
+
     return `<div style="font-size:14px;line-height:1.6;word-break:break-word;">${enhanceText(m.content)}</div>`;
 }
 

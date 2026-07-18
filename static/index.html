@@ -174,7 +174,11 @@
             margin-bottom: 12px;
             font-size: 13px;
             border: 1px solid var(--border);
+            min-height: 72px;
         }
+        .sidebar__user .user-avatar { width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;float:left;margin-right:10px;overflow:hidden;transition:opacity .2s; }
+        .sidebar__user .user-avatar:hover { opacity:.8; }
+        .sidebar__user .user-avatar img { width:100%;height:100%;object-fit:cover; }
         .sidebar__user .name { font-weight: 600; color: var(--text); }
         .sidebar__user .role { font-size: 11px; color: var(--text-ter); }
         .sidebar__user .change-pwd-link {
@@ -426,7 +430,20 @@
         .timeline-wrapper::-webkit-scrollbar { height: 4px; }
         .timeline-wrapper::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 2px; }
         .timeline-wrapper::-webkit-scrollbar-track { background: var(--border); border-radius: 2px; }
-    </style>
+        .modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center; }
+        .modal { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);max-width:500px;width:90%;max-height:80vh;overflow-y:auto; }
+        .modal__header { padding:16px 20px;font-weight:600;border-bottom:1px solid var(--border);font-size:16px; }
+        .modal__body { padding:16px 20px; }
+        .modal__footer { padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end; }
+        .draw-canvas { border:1px solid var(--border);border-radius:var(--radius-sm);cursor:crosshair;touch-action:none;max-width:100%; }
+        .draw-tools { display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px; }
+        .draw-tools button { padding:6px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-card);color:var(--text);cursor:pointer;font-size:12px;font-family:inherit; }
+        .draw-tools button.active { background:var(--accent);color:var(--bg);border-color:var(--accent); }
+        .draw-tools input[type=color] { width:32px;height:32px;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:0;background:0; }
+        .draw-tools input[type=range] { width:80px; }
+        .chat-image { max-width:200px;max-height:200px;border-radius:8px;cursor:pointer;margin-top:4px; }
+        .chat-image:hover { opacity:.9; }
+        .group-tag { display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500;margin-left:4px; }
 </head>
 <body>
 
@@ -459,8 +476,13 @@
     <div class="app-wrapper">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar__user">
-                <div class="name"><i class="fas fa-user" style="margin-right:6px;"></i><span id="sidebarUsername">-</span></div>
+                <div class="user-avatar" id="sidebarAvatar" style="width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;float:left;margin-right:10px;overflow:hidden;" onclick="showProfileModal()">
+                    <i class="fas fa-user" id="sidebarAvatarIcon"></i>
+                    <img id="sidebarAvatarImg" style="display:none;width:100%;height:100%;object-fit:cover;">
+                </div>
+                <div class="name"><span id="sidebarUsername">-</span></div>
                 <div class="role" id="sidebarRole">-</div>
+                <div id="sidebarGroup" style="font-size:11px;color:var(--text-ter);margin-top:2px;"></div>
                 <a class="change-pwd-link" id="changePwdLink"><i class="fas fa-key"></i> 修改密码</a>
             </div>
             <nav>
@@ -484,6 +506,9 @@
                 <button class="nav-link" data-page="public_chat" onclick="navigate('public_chat')">
                     <i class="fas fa-comments"></i> 公共聊天室
                 </button>
+                <button class="nav-link" data-page="draw" onclick="navigate('draw')">
+                    <i class="fas fa-paint-brush"></i> 绘图板
+                </button>
                 <button class="nav-link" data-page="documents" onclick="navigate('documents')">
                     <i class="fas fa-file-alt"></i> 共享文档
                 </button>
@@ -504,6 +529,32 @@
         <main class="main" id="mainContent">
             <div class="page-loading"><i class="fas fa-spinner fa-pulse"></i><br>加载中...</div>
         </main>
+    </div>
+
+    <!-- Profile Modal -->
+    <div class="modal-overlay" id="profileModal" style="display:none;" onclick="if(event.target===this)closeProfileModal()">
+        <div class="modal" style="max-width:400px;">
+            <div class="modal__header"><i class="fas fa-user-cog"></i> 编辑个人资料</div>
+            <div class="modal__body">
+                <div style="text-align:center;margin-bottom:16px;">
+                    <div style="width:80px;height:80px;border-radius:50%;background:var(--accent);margin:0 auto 8px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:32px;cursor:pointer;position:relative;" onclick="document.getElementById('avatarInput').click()">
+                        <i class="fas fa-user" id="modalAvatarIcon"></i>
+                        <img id="modalAvatarImg" style="display:none;width:100%;height:100%;object-fit:cover;">
+                        <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.5);color:#fff;font-size:10px;padding:2px;">更换</div>
+                    </div>
+                    <input type="file" id="avatarInput" accept="image/*" style="display:none;" onchange="handleAvatarUpload(event)">
+                </div>
+                <div class="form-group">
+                    <label>显示名称</label>
+                    <input type="text" id="profileDisplayName" class="form-control" maxlength="50">
+                </div>
+                <div id="profileMsg" style="font-size:13px;margin-top:8px;"></div>
+            </div>
+            <div class="modal__footer">
+                <button class="btn" onclick="saveProfile()"><i class="fas fa-save"></i> 保存</button>
+                <button class="btn btn--secondary" onclick="closeProfileModal()">取消</button>
+            </div>
+        </div>
     </div>
 
     <!-- ==================== PAGE TEMPLATES ==================== -->
@@ -656,8 +707,10 @@
                     </div>
                     <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;">
                         <input type="text" id="chatInput" class="form-control" placeholder="输入消息 /todo xxx [html]...[/html]" style="flex:1;" maxlength="5000">
+                        <button class="btn btn--sm" style="background:var(--bg-card-hover);border:1px solid var(--border);" id="chatImageBtn" title="发送图片"><i class="fas fa-image"></i></button>
                         <button class="btn btn--success btn--sm" id="chatTodoBtn"><i class="fas fa-check-circle"></i> 待办</button>
                         <button class="btn btn--primary" id="chatSendBtn"><i class="fas fa-paper-plane"></i> 发送</button>
+                        <input type="file" id="chatImageInput" accept="image/*" style="display:none;">
                     </div>
                 </div>
                 <div class="card" style="width:280px;flex-shrink:0;padding:12px;display:none;" id="authPanel">
@@ -687,8 +740,10 @@
                 </div>
                 <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;">
                     <input type="text" id="pubChatInput" class="form-control" placeholder="输入消息..." style="flex:1;" maxlength="5000">
+                    <button class="btn btn--sm" style="background:var(--bg-card-hover);border:1px solid var(--border);" id="pubChatImageBtn" title="发送图片"><i class="fas fa-image"></i></button>
                     <button class="btn btn--success btn--sm" id="pubChatTodoBtn"><i class="fas fa-check-circle"></i> 待办</button>
                     <button class="btn btn--primary" id="pubChatSendBtn"><i class="fas fa-paper-plane"></i> 发送</button>
+                    <input type="file" id="pubChatImageInput" accept="image/*" style="display:none;">
                 </div>
             </div>
             <div class="card" style="width:260px;flex-shrink:0;padding:12px;max-height:calc(100vh - 280px);overflow-y:auto;">
@@ -710,6 +765,26 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </template>
+
+    <!-- Drawing Board -->
+    <template id="page-draw">
+        <div class="page-header"><h1><i class="fas fa-paint-brush"></i> 绘图板 <small>像素画 / 思维导图 / 自由绘制</small></h1></div>
+        <div class="card">
+            <div class="draw-tools">
+                <button class="active" data-mode="free" onclick="setDrawMode('free')"><i class="fas fa-pen"></i> 画笔</button>
+                <button data-mode="pixel" onclick="setDrawMode('pixel')"><i class="fas fa-th"></i> 像素画</button>
+                <button data-mode="mindmap" onclick="setDrawMode('mindmap')"><i class="fas fa-project-diagram"></i> 思维导图</button>
+                <span style="color:var(--text-ter);font-size:12px;">|</span>
+                <input type="color" id="drawColor" value="#d48c5c" onchange="drawBrush.color=this.value">
+                <label style="font-size:12px;color:var(--text-ter);">粗细 <input type="range" id="drawSize" min="1" max="50" value="3" oninput="drawBrush.size=+this.value" style="width:60px;"></label>
+                <span style="color:var(--text-ter);font-size:12px;">|</span>
+                <button onclick="undoDraw()"><i class="fas fa-undo"></i> 撤销</button>
+                <button onclick="clearDraw()"><i class="fas fa-trash"></i> 清空</button>
+                <button onclick="exportDraw()"><i class="fas fa-download"></i> 导出PNG</button>
+            </div>
+            <canvas id="drawCanvas" class="draw-canvas" width="800" height="500"></canvas>
         </div>
     </template>
 
@@ -790,7 +865,7 @@
 
     <!-- Admin -->
     <template id="page-admin">
-        <div class="page-header"><h1><i class="fas fa-user-cog"></i> 用户管理 <small>创建 / 重置账户</small></h1></div>
+        <div class="page-header"><h1><i class="fas fa-user-cog"></i> 用户管理 <small>用户 · 身份组 · 权限设置</small></h1></div>
         <div class="card">
             <div class="card__title"><i class="fas fa-plus-circle"></i> 创建新用户</div>
             <form id="createUserForm" class="flex" style="flex-wrap:wrap; gap:8px;">
@@ -803,6 +878,15 @@
         <div class="card">
             <div class="card__title"><i class="fas fa-users"></i> 现有用户</div>
             <div id="userList"><div class="empty-state">加载中...</div></div>
+        </div>
+        <div class="card">
+            <div class="card__title"><i class="fas fa-tags"></i> 身份组管理</div>
+            <form id="groupForm" class="flex" style="flex-wrap:wrap; gap:8px;margin-bottom:12px;">
+                <input type="text" id="groupNameInput" class="form-control" placeholder="组名称" style="flex:1;min-width:120px;" required>
+                <input type="color" id="groupColorInput" class="form-control" value="#d48c5c" style="width:40px;padding:4px;">
+                <button type="submit" class="btn btn--primary"><i class="fas fa-plus"></i> 创建组</button>
+            </form>
+            <div id="groupList"><div class="empty-state">加载中...</div></div>
         </div>
         <div class="card">
             <div class="card__title"><i class="fas fa-bullhorn"></i> 滚动公告设置</div>
@@ -829,17 +913,19 @@
                 const user = await API.get('/api/auth/me');
                 if (!user) return;
                 currentUser = user;
-                document.getElementById('topbarUsername').textContent = user.username || '用户';
+                document.getElementById('topbarUsername').textContent = user.display_name || user.username || '用户';
                 document.getElementById('topbarRole').textContent = '(' + (user.role || 'member') + ')';
-                document.getElementById('sidebarUsername').textContent = user.username || '用户';
+                document.getElementById('sidebarUsername').textContent = user.display_name || user.username || '用户';
                 document.getElementById('sidebarRole').textContent = user.role || 'member';
+                if (user.avatar) { document.getElementById('sidebarAvatarImg').src = user.avatar; document.getElementById('sidebarAvatarImg').style.display = ''; document.getElementById('sidebarAvatarIcon').style.display = 'none'; }
+                if (user.group) { document.getElementById('sidebarGroup').innerHTML = '<span style="color:'+user.group.color+'"><i class="fas '+user.group.icon+'"></i> '+user.group.name+'</span>'; }
                 if (user.role === 'admin') {
                     document.getElementById('adminNavLink').style.display = 'flex';
                 }
                 const page = new URLSearchParams(location.search).get('page') || 'dashboard';
                 if (location.hash) {
                     const hashPage = location.hash.replace('#', '');
-                    if (['dashboard','todos','logs','messages','meetings','public_chat','documents','announcements','admin'].includes(hashPage)) {
+                    if (['dashboard','todos','logs','messages','meetings','public_chat','documents','announcements','admin','draw'].includes(hashPage)) {
                         navigate(hashPage);
                         return;
                     }
@@ -897,6 +983,7 @@
                 case 'documents': initDocuments(); break;
                 case 'announcements': initAnnouncements(); break;
                 case 'admin': initAdmin(); break;
+                case 'draw': initDraw(); break;
             }
         }
 
@@ -908,6 +995,150 @@
             });
             localStorage.removeItem('forge_token');
             window.location.href = '/login.html';
+        }
+
+        // ======================== PROFILE MODAL ========================
+        function showProfileModal() {
+            document.getElementById('profileDisplayName').value = currentUser?.display_name || '';
+            if (currentUser?.avatar) { document.getElementById('modalAvatarImg').src = currentUser.avatar; document.getElementById('modalAvatarImg').style.display = ''; document.getElementById('modalAvatarIcon').style.display = 'none'; }
+            else { document.getElementById('modalAvatarImg').style.display = 'none'; document.getElementById('modalAvatarIcon').style.display = ''; }
+            document.getElementById('profileMsg').textContent = '';
+            document.getElementById('profileModal').style.display = 'flex';
+        }
+        function closeProfileModal() { document.getElementById('profileModal').style.display = 'none'; }
+        function handleAvatarUpload(e) {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                const dataUrl = ev.target.result;
+                document.getElementById('modalAvatarImg').src = dataUrl;
+                document.getElementById('modalAvatarImg').style.display = '';
+                document.getElementById('modalAvatarIcon').style.display = 'none';
+                window._pendingAvatar = dataUrl;
+            };
+            reader.readAsDataURL(file);
+        }
+        async function saveProfile() {
+            const display_name = document.getElementById('profileDisplayName').value.trim();
+            const avatar = window._pendingAvatar || currentUser?.avatar || '';
+            if (!display_name) { document.getElementById('profileMsg').innerHTML = '<span style="color:var(--danger);">显示名称不能为空</span>'; return; }
+            try {
+                const res = await API.put('/api/auth/profile', { display_name, avatar });
+                if (res && res.id) {
+                    currentUser = res;
+                    document.getElementById('topbarUsername').textContent = res.display_name || res.username;
+                    document.getElementById('sidebarUsername').textContent = res.display_name || res.username;
+                    if (res.avatar) { document.getElementById('sidebarAvatarImg').src = res.avatar; document.getElementById('sidebarAvatarImg').style.display = ''; document.getElementById('sidebarAvatarIcon').style.display = 'none'; }
+                    document.getElementById('profileMsg').innerHTML = '<span style="color:var(--success);">保存成功</span>';
+                    setTimeout(closeProfileModal, 1000);
+                }
+            } catch(e) { document.getElementById('profileMsg').innerHTML = '<span style="color:var(--danger);">保存失败</span>'; }
+        }
+
+        // ======================== DRAWING BOARD ========================
+        let drawBrush = { color: '#d48c5c', size: 3, mode: 'free' };
+        let drawHistory = [];
+        let drawCanvas, drawCtx, drawDrawing = false;
+        let pixelSize = 16;
+        let mindMapNodes = [];
+
+        function initDraw() {
+            drawCanvas = document.getElementById('drawCanvas');
+            if (!drawCanvas) return;
+            drawCtx = drawCanvas.getContext('2d');
+            drawCtx.lineCap = 'round'; drawCtx.lineJoin = 'round';
+            drawCanvas.addEventListener('mousedown', startDraw);
+            drawCanvas.addEventListener('mousemove', drawMove);
+            drawCanvas.addEventListener('mouseup', endDraw);
+            drawCanvas.addEventListener('mouseleave', endDraw);
+            drawCanvas.addEventListener('touchstart', function(e) { e.preventDefault(); const t=e.touches[0]; startDraw({offsetX:t.clientX-drawCanvas.getBoundingClientRect().left,offsetY:t.clientY-drawCanvas.getBoundingClientRect().top}); });
+            drawCanvas.addEventListener('touchmove', function(e) { e.preventDefault(); const t=e.touches[0]; drawMove({offsetX:t.clientX-drawCanvas.getBoundingClientRect().left,offsetY:t.clientY-drawCanvas.getBoundingClientRect().top}); });
+            drawCanvas.addEventListener('touchend', endDraw);
+            saveDrawState();
+            if (drawBrush.mode === 'pixel') drawPixelGrid();
+        }
+        function setDrawMode(mode) {
+            drawBrush.mode = mode;
+            document.querySelectorAll('.draw-tools button[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+            if (mode === 'pixel') { drawPixelGrid(); drawCanvas.style.cursor = 'crosshair'; }
+            else if (mode === 'mindmap') { drawCanvas.style.cursor = 'default'; }
+            else { drawCanvas.style.cursor = 'crosshair'; }
+        }
+        function startDraw(e) {
+            if (drawBrush.mode === 'mindmap') { addMindMapNode(e.offsetX, e.offsetY); return; }
+            drawDrawing = true;
+            const rect = drawCanvas.getBoundingClientRect();
+            const x = (e.offsetX||e.clientX-rect.left) * (drawCanvas.width/rect.width);
+            const y = (e.offsetY||e.clientY-rect.top) * (drawCanvas.height/rect.height);
+            if (drawBrush.mode === 'pixel') { drawPixel(x, y); drawDrawing = false; return; }
+            drawCtx.beginPath(); drawCtx.moveTo(x, y);
+        }
+        function drawMove(e) {
+            if (!drawDrawing || drawBrush.mode !== 'free') return;
+            const rect = drawCanvas.getBoundingClientRect();
+            const x = (e.offsetX||e.clientX-rect.left) * (drawCanvas.width/rect.width);
+            const y = (e.offsetY||e.clientY-rect.top) * (drawCanvas.height/rect.height);
+            drawCtx.strokeStyle = drawBrush.color; drawCtx.lineWidth = drawBrush.size;
+            drawCtx.lineTo(x, y); drawCtx.stroke();
+        }
+        function endDraw() {
+            if (drawDrawing) { drawDrawing = false; saveDrawState(); }
+        }
+        function drawPixel(x, y) {
+            const cols = Math.floor(drawCanvas.width / pixelSize);
+            const rows = Math.floor(drawCanvas.height / pixelSize);
+            const px = Math.floor(x / pixelSize) * pixelSize;
+            const py = Math.floor(y / pixelSize) * pixelSize;
+            drawCtx.fillStyle = drawBrush.color; drawCtx.fillRect(px, py, pixelSize, pixelSize);
+            drawCtx.strokeStyle = 'rgba(255,255,255,0.1)'; drawCtx.strokeRect(px, py, pixelSize, pixelSize);
+            saveDrawState();
+        }
+        function drawPixelGrid() {
+            if (!drawCtx) return;
+            const cols = Math.floor(drawCanvas.width / pixelSize);
+            const rows = Math.floor(drawCanvas.height / pixelSize);
+            drawCtx.strokeStyle = 'rgba(255,255,255,0.05)';
+            for (let i = 0; i <= cols; i++) { drawCtx.beginPath(); drawCtx.moveTo(i * pixelSize, 0); drawCtx.lineTo(i * pixelSize, drawCanvas.height); drawCtx.stroke(); }
+            for (let i = 0; i <= rows; i++) { drawCtx.beginPath(); drawCtx.moveTo(0, i * pixelSize); drawCtx.lineTo(drawCanvas.width, i * pixelSize); drawCtx.stroke(); }
+        }
+        function addMindMapNode(x, y) {
+            const id = Date.now();
+            const label = prompt('节点名称:', '新节点') || '新节点';
+            mindMapNodes.push({id, x, y, label, children:[]});
+            renderMindMap();
+            saveDrawState();
+        }
+        function renderMindMap() {
+            if (!drawCtx) return;
+            drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+            mindMapNodes.forEach(n => {
+                drawCtx.fillStyle = drawBrush.color; drawCtx.font = '13px sans-serif';
+                const tw = drawCtx.measureText(n.label).width;
+                const rw = tw + 20, rh = 30;
+                drawCtx.fillStyle = 'rgba(212,140,92,0.15)'; drawCtx.strokeStyle = drawBrush.color; drawCtx.lineWidth = 1;
+                drawRoundedRect(drawCtx, n.x - rw/2, n.y - rh/2, rw, rh, 6);
+                drawCtx.fill(); drawCtx.stroke();
+                drawCtx.fillStyle = '#f0ede8'; drawCtx.textAlign = 'center'; drawCtx.textBaseline = 'middle';
+                drawCtx.fillText(n.label, n.x, n.y);
+            });
+        }
+        function drawRoundedRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r); ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h); ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath(); }
+        function saveDrawState() { drawHistory.push(drawCanvas.toDataURL()); if (drawHistory.length > 50) drawHistory.shift(); }
+        function undoDraw() {
+            if (drawHistory.length < 2) return;
+            drawHistory.pop(); const img = new Image();
+            img.onload = function() { drawCtx.clearRect(0,0,drawCanvas.width,drawCanvas.height); drawCtx.drawImage(img,0,0); };
+            img.src = drawHistory[drawHistory.length-1];
+        }
+        function clearDraw() {
+            if (!confirm('确定清空画布?')) return;
+            drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+            mindMapNodes = []; drawHistory = [];
+            if (drawBrush.mode === 'pixel') drawPixelGrid();
+            saveDrawState();
+        }
+        function exportDraw() {
+            const link = document.createElement('a'); link.download = 'drawing.png'; link.href = drawCanvas.toDataURL(); link.click();
         }
 
         // ======================== DASHBOARD ========================
@@ -1235,6 +1466,16 @@
             });
             document.getElementById('chatSendBtn')?.addEventListener('click', sendMeetingMessage);
             document.getElementById('chatTodoBtn')?.addEventListener('click', quickMeetingTodo);
+            document.getElementById('chatImageBtn')?.addEventListener('click', function() { document.getElementById('chatImageInput').click(); });
+            document.getElementById('chatImageInput')?.addEventListener('change', async function(e) {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async function(ev) {
+                    await API.post(`/api/meetings/${meetingChatState.meetingId}/chat`, { content: ev.target.result, message_type: 'image' });
+                    e.target.value = '';
+                };
+                reader.readAsDataURL(file);
+            });
             document.getElementById('chatInput')?.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMeetingMessage(); }
             });
@@ -1434,6 +1675,16 @@
                 if (text && !text.startsWith('/todo ')) { input.value = '/todo ' + text; }
                 else if (!text) { input.value = '/todo '; }
                 input.focus();
+            });
+            document.getElementById('pubChatImageBtn')?.addEventListener('click', function() { document.getElementById('pubChatImageInput').click(); });
+            document.getElementById('pubChatImageInput')?.addEventListener('change', async function(e) {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async function(ev) {
+                    await API.post('/api/chat', { content: ev.target.result, message_type: 'image' });
+                    e.target.value = '';
+                };
+                reader.readAsDataURL(file);
             });
             document.getElementById('pubChatInput')?.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPublicMessage(); }
@@ -1824,6 +2075,17 @@
                     msg.innerHTML = '<span style="color:var(--danger);"><i class="fas fa-exclamation-circle"></i> ' + ((data && data.error) || '创建失败') + '</span>';
                 }
             });
+            document.getElementById('groupForm')?.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const name = document.getElementById('groupNameInput').value.trim();
+                const color = document.getElementById('groupColorInput').value;
+                if (!name) return;
+                const data = await API.post('/api/admin/groups', { name, color, icon: 'fa-user', permissions: [] });
+                if (data && data.id) {
+                    document.getElementById('groupNameInput').value = '';
+                    loadAdminGroups();
+                }
+            });
             document.getElementById('announcementForm')?.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const content = document.getElementById('announcementInput').value.trim();
@@ -1839,34 +2101,71 @@
             });
             loadCurrentAnnouncement();
             loadAdminUsers();
+            loadAdminGroups();
         }
 
         async function loadAdminUsers() {
             try {
                 const users = await API.get('/api/users');
+                const groups = await API.get('/api/groups');
                 const container = document.getElementById('userList');
                 if (!container) return;
                 if (!users || users.length === 0) { container.innerHTML = '<div class="empty-state">暂无用户</div>'; return; }
-                container.innerHTML = users.map(u => `
-                    <div class="todo-item" style="border-bottom:1px solid var(--border);padding:8px 0;">
-                        <span style="flex:1;">${escapeHtml(u.username)}</span>
-                        <span style="color:var(--text-ter);font-size:12px;">${u.role}</span>
-                        <span style="color:var(--text-ter);font-size:12px;">${new Date(u.created_at).toLocaleDateString()}</span>
+                container.innerHTML = users.map(u => {
+                    const ug = groups ? groups.find(g => g.id === u.group_id) : null;
+                    return `<div class="todo-item" style="border-bottom:1px solid var(--border);padding:8px 0;">
+                        <span style="flex:1;"><i class="fas fa-user" style="margin-right:6px;"></i>${escapeHtml(u.display_name||u.username)}</span>
+                        ${ug ? '<span class="group-tag" style="background:'+ug.color+'20;color:'+ug.color+';border:1px solid '+ug.color+'40;">'+ug.name+'</span>' : ''}
+                        <span style="color:var(--text-ter);font-size:12px;margin:0 8px;">${u.role}</span>
                         <div class="todo-actions">
-                            <button class="reset-pwd" data-id="${u.id}" data-name="${escapeHtml(u.username)}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;"><i class="fas fa-key"></i> 重置密码</button>
+                            <select class="form-control" style="width:auto;display:inline-block;padding:4px 8px;font-size:12px;" onchange="changeUserGroup(${u.id},this.value)">
+                                <option value="">无分组</option>
+                                ${groups ? groups.map(g => `<option value="${g.id}" ${u.group_id===g.id?'selected':''}>${g.name}</option>`).join('') : ''}
+                            </select>
+                            <button class="reset-pwd" data-id="${u.id}" data-name="${escapeHtml(u.username)}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;margin-left:8px;"><i class="fas fa-key"></i> 重置密码</button>
                         </div>
-                    </div>
-                `).join('');
+                    </div>`;
+                }).join('');
                 container.querySelectorAll('.reset-pwd').forEach(btn => {
                     btn.addEventListener('click', async function() {
                         const newPwd = prompt('请输入新密码（至少4位）', '123456');
                         if (!newPwd || newPwd.length < 4) return;
-                        const data = await API.post(`/api/users/${this.dataset.id}/reset-password`, { password: newPwd });
+                        const data = await API.post(`/api/admin/users/${this.dataset.id}/reset-password`, { password: newPwd });
                         if (data && data.success) alert('密码已重置');
                         else alert('错误：' + ((data && data.error) || '未知'));
                     });
                 });
             } catch (_) {}
+        }
+
+        async function changeUserGroup(userId, groupId) {
+            const data = await API.put('/api/admin/users/' + userId + '/group', { group_id: groupId ? parseInt(groupId) : null });
+            if (data && data.success) loadAdminUsers();
+        }
+
+        async function loadAdminGroups() {
+            try {
+                const groups = await API.get('/api/groups');
+                const container = document.getElementById('groupList');
+                if (!container) return;
+                if (!groups || groups.length === 0) { container.innerHTML = '<div class="empty-state">暂无身份组</div>'; return; }
+                container.innerHTML = groups.map(g => `
+                    <div class="todo-item" style="border-bottom:1px solid var(--border);padding:8px 0;">
+                        <span style="flex:1;"><i class="fas ${g.icon}" style="color:${g.color};margin-right:6px;"></i>${g.name}</span>
+                        <span style="color:var(--text-ter);font-size:12px;">${g.description||''}</span>
+                        <span style="color:var(--text-ter);font-size:11px;margin:0 8px;">${g.is_system ? '系统' : '自定义'}</span>
+                        <div class="todo-actions">
+                            ${g.is_system ? '' : `<button onclick="deleteGroup(${g.id})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px;"><i class="fas fa-trash"></i> 删除</button>`}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (_) {}
+        }
+
+        async function deleteGroup(id) {
+            if (!confirm('确定删除此身份组？用户将变为无分组状态')) return;
+            const data = await API.del('/api/admin/groups/' + id);
+            if (data && data.success) loadAdminGroups();
         }
 
         async function loadCurrentAnnouncement() {
