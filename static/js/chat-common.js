@@ -73,6 +73,22 @@ function renderMessageContent(m) {
         return `<img src="${escapeHtml(m.content)}" class="chat-image" onclick="window.open(this.src)" loading="lazy">`;
     }
 
+    if (type === 'drawing') {
+        let meta = {};
+        try { meta = m.meta_data ? JSON.parse(m.meta_data) : {}; } catch(e) {}
+        const cid = meta.canvas_id;
+        const title = meta.title || '协作画布';
+        const modeLabel = meta.mode === 'pixel' ? '像素画' : '自由绘制';
+        return `<div class="drawing-msg-card" onclick="openCollaborativeCanvas(${cid})" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(212,140,92,0.1);border:1px solid var(--accent);border-radius:8px;margin:2px 0;">
+            <i class="fas fa-paint-brush" style="color:var(--accent);font-size:20px;"></i>
+            <div style="flex:1;">
+                <div style="font-weight:600;font-size:14px;">🎨 ${escapeHtml(title)}</div>
+                <div style="font-size:11px;color:var(--text-ter);">协作画布 · ${modeLabel} · 点击进入</div>
+            </div>
+            <i class="fas fa-arrow-right" style="color:var(--accent);"></i>
+        </div>`;
+    }
+
     return `<div style="font-size:14px;line-height:1.6;word-break:break-word;">${enhanceText(m.content)}</div>`;
 }
 

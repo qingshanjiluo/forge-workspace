@@ -441,6 +441,11 @@
         .draw-tools button.active { background:var(--accent);color:var(--bg);border-color:var(--accent); }
         .draw-tools input[type=color] { width:32px;height:32px;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:0;background:0; }
         .draw-tools input[type=range] { width:80px; }
+        .drawing-msg-card { transition: background .15s; }
+        .drawing-msg-card:hover { background:rgba(212,140,92,0.2) !important; }
+        #collabCanvasModal .modal { background:var(--bg-card); }
+        #collabCanvasModal .draw-tools button { padding:5px 10px;font-size:11px; }
+        #collabCanvasModal .draw-tools button.active { background:var(--accent);color:var(--bg);border-color:var(--accent); }
         .chat-image { max-width:200px;max-height:200px;border-radius:8px;cursor:pointer;margin-top:4px; }
         .chat-image:hover { opacity:.9; }
         .group-tag { display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500;margin-left:4px; }
@@ -554,6 +559,63 @@
             <div class="modal__footer">
                 <button class="btn" onclick="saveProfile()"><i class="fas fa-save"></i> 保存</button>
                 <button class="btn btn--secondary" onclick="closeProfileModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== COLLABORATIVE DRAWING MODAL ==================== -->
+    <div class="modal-overlay" id="collabCanvasModal" style="display:none;" onclick="if(event.target===this)closeCollabCanvas()">
+        <div class="modal" style="max-width:980px;width:96vw;">
+            <div class="modal__header">
+                <i class="fas fa-paint-brush"></i> <span id="collabCanvasTitle">协作画布</span>
+                <span id="collabModeBadge" style="font-size:11px;padding:2px 8px;border-radius:8px;background:var(--accent);color:#fff;margin-left:8px;"></span>
+            </div>
+            <div class="modal__body" style="padding:12px;">
+                <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                    <!-- Canvas + tools -->
+                    <div style="flex:1;min-width:320px;">
+                        <div class="draw-tools" style="margin-bottom:10px;">
+                            <button class="active" data-dmode="free" onclick="setCollabMode('free')"><i class="fas fa-pen"></i> 画笔</button>
+                            <button data-dmode="pixel" onclick="setCollabMode('pixel')"><i class="fas fa-th"></i> 像素画</button>
+                            <button data-dmode="line" onclick="setCollabMode('line')"><i class="fas fa-slash"></i> 直线</button>
+                            <button data-dmode="rect" onclick="setCollabMode('rect')"><i class="fas fa-square"></i> 矩形</button>
+                            <button data-dmode="circle" onclick="setCollabMode('circle')"><i class="fas fa-circle"></i> 圆</button>
+                            <button data-dmode="arrow" onclick="setCollabMode('arrow')"><i class="fas fa-arrow-right"></i> 箭头</button>
+                            <span style="color:var(--text-ter);font-size:12px;">|</span>
+                            <input type="color" id="collabColor" value="#d48c5c" onchange="collabBrush.color=this.value">
+                            <span id="collabPalette" style="display:flex;gap:3px;flex-wrap:wrap;max-width:200px;"></span>
+                            <label style="font-size:12px;color:var(--text-ter);">粗细 <input type="range" id="collabSize" min="1" max="50" value="3" oninput="collabBrush.size=+this.value" style="width:60px;"></label>
+                            <span style="color:var(--text-ter);font-size:12px;">|</span>
+                            <button onclick="undoCollab()"><i class="fas fa-undo"></i> 撤销</button>
+                            <button onclick="clearCollab()"><i class="fas fa-trash"></i> 清空</button>
+                            <button onclick="exportCollab()"><i class="fas fa-download"></i> 导出</button>
+                        </div>
+                        <div id="collabControlHint" style="font-size:12px;margin-bottom:8px;padding:6px 10px;border-radius:6px;background:var(--bg);"></div>
+                        <canvas id="collabCanvas" class="draw-canvas" width="760" height="460" style="width:100%;background:#fff;"></canvas>
+                    </div>
+                    <!-- Sidebar: participants + control -->
+                    <div style="width:240px;flex-shrink:0;display:flex;flex-direction:column;gap:12px;">
+                        <div class="card" style="padding:10px;">
+                            <div class="card__title" style="font-size:13px;margin-bottom:8px;"><i class="fas fa-crown"></i> 当前操控人</div>
+                            <div id="collabOwner" style="font-size:13px;"></div>
+                        </div>
+                        <div class="card" style="padding:10px;">
+                            <div class="card__title" style="font-size:13px;margin-bottom:8px;"><i class="fas fa-users"></i> 协作成员 (<span id="collabPartCount">0</span>)</div>
+                            <div id="collabParticipants" style="font-size:12px;line-height:1.9;"></div>
+                        </div>
+                        <div class="card" style="padding:10px;" id="collabRequestsCard">
+                            <div class="card__title" style="font-size:13px;margin-bottom:8px;"><i class="fas fa-hand-paper"></i> 接管申请</div>
+                            <div id="collabRequests" style="font-size:12px;"></div>
+                        </div>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                            <button class="btn btn--sm btn--danger" onclick="leaveCollabCanvas()" style="flex:1;">离开</button>
+                            <button class="btn btn--sm" onclick="deleteCollabCanvas()" style="flex:1;">删除画布</button>
+                        </div>
+                        <div class="card" style="padding:10px;font-size:11px;color:var(--text-ter);line-height:1.7;">
+                            创建画布的人为操控人，可绘制。<br>其他人点击「申请接管」，操控人同意后获得管理权。
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -708,6 +770,7 @@
                     </div>
                     <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;">
                         <input type="text" id="chatInput" class="form-control" placeholder="输入消息 /todo xxx [html]...[/html]" style="flex:1;" maxlength="5000">
+                        <button class="btn btn--sm" style="background:var(--bg-card-hover);border:1px solid var(--border);" id="chatDrawBtn" title="发起协作绘画"><i class="fas fa-paint-brush"></i></button>
                         <button class="btn btn--sm" style="background:var(--bg-card-hover);border:1px solid var(--border);" id="chatImageBtn" title="发送图片"><i class="fas fa-image"></i></button>
                         <button class="btn btn--success btn--sm" id="chatTodoBtn"><i class="fas fa-check-circle"></i> 待办</button>
                         <button class="btn btn--primary" id="chatSendBtn"><i class="fas fa-paper-plane"></i> 发送</button>
@@ -741,6 +804,7 @@
                 </div>
                 <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;">
                     <input type="text" id="pubChatInput" class="form-control" placeholder="输入消息..." style="flex:1;" maxlength="5000">
+                    <button class="btn btn--sm" style="background:var(--bg-card-hover);border:1px solid var(--border);" id="pubChatDrawBtn" title="发起协作绘画"><i class="fas fa-paint-brush"></i></button>
                     <button class="btn btn--sm" style="background:var(--bg-card-hover);border:1px solid var(--border);" id="pubChatImageBtn" title="发送图片"><i class="fas fa-image"></i></button>
                     <button class="btn btn--success btn--sm" id="pubChatTodoBtn"><i class="fas fa-check-circle"></i> 待办</button>
                     <button class="btn btn--primary" id="pubChatSendBtn"><i class="fas fa-paper-plane"></i> 发送</button>
@@ -771,19 +835,25 @@
 
     <!-- Drawing Board -->
     <template id="page-draw">
-        <div class="page-header"><h1><i class="fas fa-paint-brush"></i> 绘图板 <small>像素画 / 思维导图 / 自由绘制</small></h1></div>
+        <div class="page-header"><h1><i class="fas fa-paint-brush"></i> 绘图板 <small>像素画 / 思维导图 / 自由绘制 / 图形</small></h1></div>
         <div class="card">
             <div class="draw-tools">
                 <button class="active" data-mode="free" onclick="setDrawMode('free')"><i class="fas fa-pen"></i> 画笔</button>
                 <button data-mode="pixel" onclick="setDrawMode('pixel')"><i class="fas fa-th"></i> 像素画</button>
                 <button data-mode="mindmap" onclick="setDrawMode('mindmap')"><i class="fas fa-project-diagram"></i> 思维导图</button>
+                <button data-mode="line" onclick="setDrawMode('line')"><i class="fas fa-slash"></i> 直线</button>
+                <button data-mode="rect" onclick="setDrawMode('rect')"><i class="fas fa-square"></i> 矩形</button>
+                <button data-mode="circle" onclick="setDrawMode('circle')"><i class="fas fa-circle"></i> 圆</button>
+                <button data-mode="arrow" onclick="setDrawMode('arrow')"><i class="fas fa-arrow-right"></i> 箭头</button>
                 <span style="color:var(--text-ter);font-size:12px;">|</span>
                 <input type="color" id="drawColor" value="#d48c5c" onchange="drawBrush.color=this.value">
+                <span id="drawPalette" style="display:flex;gap:3px;flex-wrap:wrap;max-width:220px;"></span>
                 <label style="font-size:12px;color:var(--text-ter);">粗细 <input type="range" id="drawSize" min="1" max="50" value="3" oninput="drawBrush.size=+this.value" style="width:60px;"></label>
                 <span style="color:var(--text-ter);font-size:12px;">|</span>
                 <button onclick="undoDraw()"><i class="fas fa-undo"></i> 撤销</button>
                 <button onclick="clearDraw()"><i class="fas fa-trash"></i> 清空</button>
                 <button onclick="exportDraw()"><i class="fas fa-download"></i> 导出PNG</button>
+                <button class="btn--primary" onclick="drawPublishToChat()" title="发布到公共聊天室"><i class="fas fa-share"></i> 发布到聊天</button>
             </div>
             <canvas id="drawCanvas" class="draw-canvas" width="800" height="500"></canvas>
         </div>
@@ -1039,7 +1109,7 @@
         // ======================== DRAWING BOARD ========================
         let drawBrush = { color: '#d48c5c', size: 3, mode: 'free' };
         let drawHistory = [];
-        let drawCanvas, drawCtx, drawDrawing = false;
+        let drawCanvas, drawCtx, drawDrawing = false, drawShapeStart = null;
         let pixelSize = 16;
         let mindMapNodes = [];
 
@@ -1055,6 +1125,7 @@
             drawCanvas.addEventListener('touchstart', function(e) { e.preventDefault(); const t=e.touches[0]; startDraw({offsetX:t.clientX-drawCanvas.getBoundingClientRect().left,offsetY:t.clientY-drawCanvas.getBoundingClientRect().top}); });
             drawCanvas.addEventListener('touchmove', function(e) { e.preventDefault(); const t=e.touches[0]; drawMove({offsetX:t.clientX-drawCanvas.getBoundingClientRect().left,offsetY:t.clientY-drawCanvas.getBoundingClientRect().top}); });
             drawCanvas.addEventListener('touchend', endDraw);
+            renderDrawPalette();
             saveDrawState();
             if (drawBrush.mode === 'pixel') drawPixelGrid();
         }
@@ -1065,25 +1136,56 @@
             else if (mode === 'mindmap') { drawCanvas.style.cursor = 'default'; }
             else { drawCanvas.style.cursor = 'crosshair'; }
         }
+        function drawPt(e) {
+            const rect = drawCanvas.getBoundingClientRect();
+            return { x: (e.offsetX||0) * (drawCanvas.width/rect.width), y: (e.offsetY||0) * (drawCanvas.height/rect.height) };
+        }
         function startDraw(e) {
             if (drawBrush.mode === 'mindmap') { addMindMapNode(e.offsetX, e.offsetY); return; }
-            drawDrawing = true;
-            const rect = drawCanvas.getBoundingClientRect();
-            const x = (e.offsetX||e.clientX-rect.left) * (drawCanvas.width/rect.width);
-            const y = (e.offsetY||e.clientY-rect.top) * (drawCanvas.height/rect.height);
-            if (drawBrush.mode === 'pixel') { drawPixel(x, y); drawDrawing = false; return; }
-            drawCtx.beginPath(); drawCtx.moveTo(x, y);
+            const p = drawPt(e);
+            if (drawBrush.mode === 'pixel') { drawPixel(p.x, p.y); return; }
+            if (['line','rect','circle','arrow'].includes(drawBrush.mode)) {
+                drawShapeStart = p; drawDrawing = true; drawHistory.push(drawCanvas.toDataURL()); return;
+            }
+            drawDrawing = true; drawHistory.push(drawCanvas.toDataURL());
+            drawCtx.beginPath(); drawCtx.moveTo(p.x, p.y);
         }
         function drawMove(e) {
-            if (!drawDrawing || drawBrush.mode !== 'free') return;
-            const rect = drawCanvas.getBoundingClientRect();
-            const x = (e.offsetX||e.clientX-rect.left) * (drawCanvas.width/rect.width);
-            const y = (e.offsetY||e.clientY-rect.top) * (drawCanvas.height/rect.height);
+            if (!drawDrawing) return;
+            const p = drawPt(e);
+            if (['line','rect','circle','arrow'].includes(drawBrush.mode)) {
+                const snap = drawHistory[drawHistory.length-1];
+                const img = new Image();
+                img.onload = () => { drawCtx.clearRect(0,0,drawCanvas.width,drawCanvas.height); drawCtx.drawImage(img,0,0); drawShape(drawShapeStart, p); };
+                img.src = snap; return;
+            }
+            if (drawBrush.mode !== 'free') return;
             drawCtx.strokeStyle = drawBrush.color; drawCtx.lineWidth = drawBrush.size;
-            drawCtx.lineTo(x, y); drawCtx.stroke();
+            drawCtx.lineTo(p.x, p.y); drawCtx.stroke();
         }
         function endDraw() {
-            if (drawDrawing) { drawDrawing = false; saveDrawState(); }
+            if (drawDrawing) { drawDrawing = false; drawShapeStart = null; saveDrawState(); }
+        }
+        function drawShape(a, b) {
+            if (!a || !b) return;
+            drawCtx.strokeStyle = drawBrush.color; drawCtx.fillStyle = drawBrush.color; drawCtx.lineWidth = drawBrush.size;
+            if (drawBrush.mode === 'line') { drawCtx.beginPath(); drawCtx.moveTo(a.x,a.y); drawCtx.lineTo(b.x,b.y); drawCtx.stroke(); }
+            else if (drawBrush.mode === 'rect') { drawCtx.strokeRect(a.x, a.y, b.x-a.x, b.y-a.y); }
+            else if (drawBrush.mode === 'circle') { const rx=Math.abs(b.x-a.x)/2, ry=Math.abs(b.y-a.y)/2, cx=a.x+(b.x-a.x)/2, cy=a.y+(b.y-a.y)/2; drawCtx.beginPath(); drawCtx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); drawCtx.stroke(); }
+            else if (drawBrush.mode === 'arrow') {
+                drawCtx.beginPath(); drawCtx.moveTo(a.x,a.y); drawCtx.lineTo(b.x,b.y); drawCtx.stroke();
+                const ang=Math.atan2(b.y-a.y,b.x-a.x), h=12;
+                drawCtx.beginPath(); drawCtx.moveTo(b.x,b.y); drawCtx.lineTo(b.x-h*Math.cos(ang-Math.PI/6), b.y-h*Math.sin(ang-Math.PI/6));
+                drawCtx.moveTo(b.x,b.y); drawCtx.lineTo(b.x-h*Math.cos(ang+Math.PI/6), b.y-h*Math.sin(ang+Math.PI/6)); drawCtx.stroke();
+            }
+        }
+        function renderDrawPalette() {
+            const pal = document.getElementById('drawPalette');
+            if (!pal) return;
+            pal.innerHTML = RICH_COLORS.map(c => `<span onclick="drawBrush.color='${c}';document.getElementById('drawColor').value='${c}';" title="${c}" style="width:18px;height:18px;border-radius:4px;background:${c};cursor:pointer;border:1px solid rgba(255,255,255,0.2);display:inline-block;"></span>`).join('');
+        }
+        async function drawPublishToChat() {
+            try { await API.post('/api/chat', { content: drawCanvas.toDataURL('image/png'), message_type: 'image' }); alert('已发布到公共聊天室'); } catch(e){ alert('发布失败'); }
         }
         function drawPixel(x, y) {
             const cols = Math.floor(drawCanvas.width / pixelSize);
@@ -1140,6 +1242,311 @@
         }
         function exportDraw() {
             const link = document.createElement('a'); link.download = 'drawing.png'; link.href = drawCanvas.toDataURL(); link.click();
+        }
+
+        // ======================== COLLABORATIVE DRAWING ========================
+        let collabCanvasObj = null;       // current canvas state from server
+        let collabCanvas, collabCtx, collabDrawing = false, collabHasChanges = false;
+        let collabHistory = [], collabShapeStart = null;
+        let collabBrush = { color: '#d48c5c', size: 3, mode: 'free' };
+        let collabRoom = { type: 'public', id: 0 };
+        let collabPollTimer = null, collabSaveTimer = null;
+        const RICH_COLORS = ['#d48c5c','#e07a5f','#f2cc8f','#81b29a','#5c9ad4','#9b5de5','#f15bb5','#fee440','#00bbf9','#00f5d4','#ef476f','#06d6a0','#118ab2','#073b4c','#ff7b00','#3a86ff','#8338ec','#ff006e','#fb5607','#000000','#ffffff','#9a9792'];
+
+        function setCollabMode(mode) {
+            collabBrush.mode = mode;
+            document.querySelectorAll('#collabCanvasModal .draw-tools button[data-dmode]').forEach(b => b.classList.toggle('active', b.dataset.dmode === mode));
+        }
+
+        function renderCollabPalette() {
+            const pal = document.getElementById('collabPalette');
+            if (!pal) return;
+            pal.innerHTML = RICH_COLORS.map(c => `<span onclick="collabBrush.color='${c}';document.getElementById('collabColor').value='${c}';" title="${c}" style="width:18px;height:18px;border-radius:4px;background:${c};cursor:pointer;border:1px solid rgba(255,255,255,0.2);display:inline-block;"></span>`).join('');
+        }
+
+        async function createCollabCanvas(roomType, roomId) {
+            try {
+                const canvas = await API.post('/api/drawings', { room_type: roomType, room_id: roomId, title: '协作画布', mode: 'free' });
+                if (canvas && canvas.id) {
+                    await openCollaborativeCanvas(canvas.id);
+                    // refresh chat after a moment so the drawing message appears
+                    setTimeout(() => { if (roomType === 'meeting') pollMeetingMessages(); else pollPublicMessages(); }, 800);
+                }
+            } catch (e) { alert('创建画布失败'); }
+        }
+
+        async function openCollaborativeCanvas(canvasId) {
+            try {
+                const data = await API.get('/api/drawings/' + canvasId);
+                if (!data || !data.id) return;
+                collabCanvasObj = data;
+                collabRoom = { type: data.room_type, id: data.room_id };
+                collabCanvas = document.getElementById('collabCanvas');
+                collabCtx = collabCanvas.getContext('2d');
+                collabCtx.lineCap = 'round'; collabCtx.lineJoin = 'round';
+                document.getElementById('collabCanvasTitle').textContent = data.title || '协作画布';
+                document.getElementById('collabModeBadge').textContent = data.mode === 'pixel' ? '像素画模式' : '自由绘制模式';
+                // render existing data
+                if (data.data) {
+                    const img = new Image();
+                    img.onload = () => { collabCtx.clearRect(0,0,collabCanvas.width,collabCanvas.height); collabCtx.drawImage(img,0,0); };
+                    img.src = data.data;
+                } else {
+                    collabCtx.clearRect(0,0,collabCanvas.width,collabCanvas.height);
+                }
+                bindCollabCanvasEvents();
+                renderCollabPalette();
+                updateCollabSidebar();
+                updateCollabControlHint();
+                document.getElementById('collabCanvasModal').style.display = 'flex';
+                startCollabPolling();
+            } catch (e) { alert('打开画布失败'); }
+        }
+
+        function closeCollabCanvas() {
+            stopCollabPolling();
+            saveCollabNow(true);
+            document.getElementById('collabCanvasModal').style.display = 'none';
+            collabCanvasObj = null;
+        }
+
+        function amCollabOwner() {
+            return collabCanvasObj && collabCanvasObj.owner_id === currentUser.id;
+        }
+        function isCollabParticipant() {
+            return collabCanvasObj && collabCanvasObj.participants && collabCanvasObj.participants.some(p => p.user_id === currentUser.id);
+        }
+
+        function updateCollabSidebar() {
+            if (!collabCanvasObj) return;
+            const owner = collabCanvasObj.owner_id === currentUser.id
+                ? (currentUser.display_name || currentUser.username) + ' (你)'
+                : (collabCanvasObj.owner_name || '未知');
+            document.getElementById('collabOwner').innerHTML = '<i class="fas fa-crown" style="color:#f2cc8f;"></i> ' + escapeHtml(owner);
+            const parts = collabCanvasObj.participants || [];
+            document.getElementById('collabPartCount').textContent = parts.length;
+            document.getElementById('collabParticipants').innerHTML = parts.length
+                ? parts.map(p => `<div style="display:flex;align-items:center;gap:6px;"><span style="width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;">${escapeHtml((p.username||'?').charAt(0).toUpperCase())}</span>${escapeHtml(p.display_name||p.username)}${p.user_id===collabCanvasObj.owner_id?' <i class="fas fa-crown" style="color:#f2cc8f;font-size:10px;"></i>':''}${p.user_id===currentUser.id?' (你)':''}</div>`).join('')
+                : '<div style="color:var(--text-ter);">暂无成员</div>';
+            // requests
+            const reqs = collabCanvasObj.pending_requests || [];
+            const reqEl = document.getElementById('collabRequests');
+            if (reqs.length === 0) {
+                reqEl.innerHTML = '<div style="color:var(--text-ter);">暂无申请</div>';
+            } else {
+                reqEl.innerHTML = reqs.map(r => `
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                        <span style="flex:1;">${escapeHtml(r.display_name||r.username)}</span>
+                        ${amCollabOwner() ? `<button class="btn btn--sm btn--success" onclick="approveCollabControl(${r.id})"><i class="fas fa-check"></i></button><button class="btn btn--sm btn--danger" onclick="rejectCollabControl(${r.id})"><i class="fas fa-times"></i></button>` : '<span style="font-size:11px;color:var(--text-ter);">待处理</span>'}
+                    </div>`).join('');
+            }
+        }
+
+        function updateCollabControlHint() {
+            const hint = document.getElementById('collabControlHint');
+            if (amCollabOwner()) {
+                hint.innerHTML = '<i class="fas fa-crown" style="color:#f2cc8f;"></i> 你是操控人，可以直接绘制。其他人可申请接管。';
+                hint.style.borderColor = 'var(--accent)';
+            } else if (isCollabParticipant()) {
+                hint.innerHTML = '你已加入。当前操控人：' + escapeHtml(collabCanvasObj.owner_name||'未知') + ' <button class="btn btn--sm" style="margin-left:8px;" onclick="requestCollabControl()"><i class="fas fa-hand-paper"></i> 申请接管</button>';
+            } else {
+                hint.innerHTML = '你还未加入。 <button class="btn btn--sm btn--primary" style="margin-left:8px;" onclick="joinCollabCanvas()"><i class="fas fa-sign-in-alt"></i> 加入协作</button>';
+            }
+        }
+
+        async function joinCollabCanvas() {
+            try { await API.post('/api/drawings/' + collabCanvasObj.id + '/join'); await refreshCollabCanvas(); } catch(e){}
+        }
+        async function leaveCollabCanvas() {
+            try { await API.post('/api/drawings/' + collabCanvasObj.id + '/leave'); } catch(e){}
+            closeCollabCanvas();
+        }
+        async function requestCollabControl() {
+            try { await API.post('/api/drawings/' + collabCanvasObj.id + '/request-control'); alert('已发送接管申请，等待操控人同意'); await refreshCollabCanvas(); } catch(e){ alert('申请失败：' + ((e&&e.message)||'未知')); }
+        }
+        async function approveCollabControl(reqId) {
+            try { await API.post('/api/drawings/' + collabCanvasObj.id + '/control', { request_id: reqId, action: 'approve' }); await refreshCollabCanvas(); } catch(e){}
+        }
+        async function rejectCollabControl(reqId) {
+            try { await API.post('/api/drawings/' + collabCanvasObj.id + '/control', { request_id: reqId, action: 'reject' }); await refreshCollabCanvas(); } catch(e){}
+        }
+        async function deleteCollabCanvas() {
+            if (!confirm('确定删除此协作画布？所有内容将丢失')) return;
+            try { await API.del('/api/drawings/' + collabCanvasObj.id); closeCollabCanvas(); } catch(e){}
+        }
+
+        async function refreshCollabCanvas() {
+            try { const data = await API.get('/api/drawings/' + collabCanvasObj.id); if (data && data.id) { collabCanvasObj = data; updateCollabSidebar(); updateCollabControlHint(); } } catch(e){}
+        }
+
+        function bindCollabCanvasEvents() {
+            if (collabCanvas._bound) return;
+            collabCanvas._bound = true;
+            collabCanvas.addEventListener('mousedown', collabStartDraw);
+            collabCanvas.addEventListener('mousemove', collabMoveDraw);
+            collabCanvas.addEventListener('mouseup', collabEndDraw);
+            collabCanvas.addEventListener('mouseleave', collabEndDraw);
+            collabCanvas.addEventListener('touchstart', function(e){ e.preventDefault(); const t=e.touches[0]; collabStartDraw({offsetX:t.clientX-collabCanvas.getBoundingClientRect().left, offsetY:t.clientY-collabCanvas.getBoundingClientRect().top}); });
+            collabCanvas.addEventListener('touchmove', function(e){ e.preventDefault(); const t=e.touches[0]; collabMoveDraw({offsetX:t.clientX-collabCanvas.getBoundingClientRect().left, offsetY:t.clientY-collabCanvas.getBoundingClientRect().top}); });
+            collabCanvas.addEventListener('touchend', collabEndDraw);
+        }
+
+        function collabCanDraw() { return amCollabOwner(); }
+
+        function collabPt(e) {
+            const rect = collabCanvas.getBoundingClientRect();
+            const sx = collabCanvas.width / rect.width, sy = collabCanvas.height / rect.height;
+            return { x: (e.offsetX||0)*sx, y: (e.offsetY||0)*sy };
+        }
+
+        function collabStartDraw(e) {
+            if (!collabCanDraw()) { flashCollabLocked(); return; }
+            const p = collabPt(e);
+            if (collabBrush.mode === 'pixel') { collabPixel(p.x, p.y); collabHasChanges = true; return; }
+            if (['line','rect','circle','arrow'].includes(collabBrush.mode)) {
+                collabShapeStart = p;
+                collabDrawing = true;
+                collabHistory.push(collabCanvas.toDataURL());
+                return;
+            }
+            collabDrawing = true;
+            collabHistory.push(collabCanvas.toDataURL());
+            const rect = collabCanvas.getBoundingClientRect();
+            collabCtx.beginPath();
+            collabCtx.moveTo(p.x, p.y);
+        }
+
+        function collabMoveDraw(e) {
+            if (!collabCanDraw() || !collabDrawing) return;
+            const p = collabPt(e);
+            if (['line','rect','circle','arrow'].includes(collabBrush.mode)) {
+                // preview from history
+                const snap = collabHistory[collabHistory.length-1];
+                const img = new Image();
+                img.onload = () => {
+                    collabCtx.clearRect(0,0,collabCanvas.width,collabCanvas.height);
+                    collabCtx.drawImage(img,0,0);
+                    drawCollabShape(collabShapeStart, p);
+                };
+                img.src = snap;
+                return;
+            }
+            collabCtx.strokeStyle = collabBrush.color; collabCtx.lineWidth = collabBrush.size;
+            collabCtx.lineTo(p.x, p.y); collabCtx.stroke();
+        }
+
+        function collabEndDraw() {
+            if (!collabDrawing && !['pixel'].includes(collabBrush.mode)) { collabShapeStart = null; return; }
+            if (collabDrawing) {
+                collabDrawing = false;
+                collabHasChanges = true;
+                if (collabHistory.length > 50) collabHistory.shift();
+            }
+            collabShapeStart = null;
+            scheduleCollabSave();
+        }
+
+        function collabPixel(x, y) {
+            const size = 16;
+            const px = Math.floor(x/size)*size, py = Math.floor(y/size)*size;
+            collabCtx.fillStyle = collabBrush.color;
+            collabCtx.fillRect(px, py, size, size);
+            collabCtx.strokeStyle = 'rgba(0,0,0,0.08)';
+            collabCtx.strokeRect(px, py, size, size);
+            scheduleCollabSave();
+        }
+
+        function drawCollabShape(a, b) {
+            if (!a || !b) return;
+            collabCtx.strokeStyle = collabBrush.color; collabCtx.fillStyle = collabBrush.color; collabCtx.lineWidth = collabBrush.size;
+            if (collabBrush.mode === 'line') {
+                collabCtx.beginPath(); collabCtx.moveTo(a.x,a.y); collabCtx.lineTo(b.x,b.y); collabCtx.stroke();
+            } else if (collabBrush.mode === 'rect') {
+                collabCtx.strokeRect(a.x, a.y, b.x-a.x, b.y-a.y);
+            } else if (collabBrush.mode === 'circle') {
+                const rx=Math.abs(b.x-a.x)/2, ry=Math.abs(b.y-a.y)/2, cx=a.x+(b.x-a.x)/2, cy=a.y+(b.y-a.y)/2;
+                collabCtx.beginPath(); collabCtx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); collabCtx.stroke();
+            } else if (collabBrush.mode === 'arrow') {
+                collabCtx.beginPath(); collabCtx.moveTo(a.x,a.y); collabCtx.lineTo(b.x,b.y); collabCtx.stroke();
+                const ang=Math.atan2(b.y-a.y,b.x-a.x), h=12;
+                collabCtx.beginPath(); collabCtx.moveTo(b.x,b.y);
+                collabCtx.lineTo(b.x-h*Math.cos(ang-Math.PI/6), b.y-h*Math.sin(ang-Math.PI/6));
+                collabCtx.moveTo(b.x,b.y);
+                collabCtx.lineTo(b.x-h*Math.cos(ang+Math.PI/6), b.y-h*Math.sin(ang+Math.PI/6));
+                collabCtx.stroke();
+            }
+        }
+
+        function flashCollabLocked() {
+            const hint = document.getElementById('collabControlHint');
+            hint.style.transition = 'background .2s';
+            hint.style.background = 'rgba(239,68,68,0.15)';
+            setTimeout(() => { hint.style.background = 'var(--bg)'; }, 400);
+        }
+
+        function scheduleCollabSave() {
+            if (collabSaveTimer) return;
+            collabSaveTimer = setTimeout(() => { collabSaveTimer = null; saveCollabNow(false); }, 600);
+        }
+
+        let collabSaving = false;
+        async function saveCollabNow(force) {
+            if (!collabCanvasObj || !amCollabOwner()) return;
+            if (!collabHasChanges && !force) return;
+            if (collabSaving) return;
+            collabSaving = true;
+            try {
+                await API.put('/api/drawings/' + collabCanvasObj.id, { data: collabCanvas.toDataURL('image/png') });
+                collabHasChanges = false;
+            } catch (e) {}
+            collabSaving = false;
+        }
+
+        function undoCollab() {
+            if (!amCollabOwner()) { flashCollabLocked(); return; }
+            if (collabHistory.length < 2) return;
+            collabHistory.pop();
+            const img = new Image();
+            img.onload = () => { collabCtx.clearRect(0,0,collabCanvas.width,collabCanvas.height); collabCtx.drawImage(img,0,0); };
+            img.src = collabHistory[collabHistory.length-1];
+            scheduleCollabSave();
+        }
+
+        function clearCollab() {
+            if (!amCollabOwner()) { flashCollabLocked(); return; }
+            if (!confirm('清空画布？')) return;
+            collabHistory.push(collabCanvas.toDataURL());
+            collabCtx.clearRect(0,0,collabCanvas.width,collabCanvas.height);
+            collabHasChanges = true;
+            scheduleCollabSave();
+        }
+
+        function exportCollab() {
+            const link = document.createElement('a'); link.download = 'collab-drawing.png'; link.href = collabCanvas.toDataURL(); link.click();
+        }
+
+        function startCollabPolling() {
+            stopCollabPolling();
+            collabPollTimer = setInterval(async () => {
+                if (!collabCanvasObj) return;
+                try {
+                    const data = await API.get('/api/drawings/' + collabCanvasObj.id);
+                    if (!data || !data.id) return;
+                    const ownerChanged = collabCanvasObj.owner_id !== data.owner_id;
+                    collabCanvasObj = data;
+                    // re-render canvas only if updated by someone else (we are not the owner, or data changed externally)
+                    if (data.data && (!amCollabOwner() || ownerChanged)) {
+                        const img = new Image();
+                        img.onload = () => { collabCtx.clearRect(0,0,collabCanvas.width,collabCanvas.height); collabCtx.drawImage(img,0,0); };
+                        img.src = data.data;
+                    }
+                    updateCollabSidebar();
+                    updateCollabControlHint();
+                } catch(e){}
+            }, 1500);
+        }
+        function stopCollabPolling() {
+            if (collabPollTimer) { clearInterval(collabPollTimer); collabPollTimer = null; }
         }
 
         // ======================== DASHBOARD ========================
@@ -1558,6 +1965,7 @@
             const ap = document.getElementById('authPanel');
             if (ap) ap.style.display = 'block';
             loadTokens('tokenList');
+            document.getElementById('chatDrawBtn')?.addEventListener('click', function() { createCollabCanvas('meeting', meetingChatState.meetingId); });
         }
 
         function leaveMeetingChat() {
@@ -1670,6 +2078,7 @@
         // ======================== PUBLIC CHAT ========================
         function initPublicChat() {
             document.getElementById('pubChatSendBtn')?.addEventListener('click', sendPublicMessage);
+            document.getElementById('pubChatDrawBtn')?.addEventListener('click', function() { createCollabCanvas('public', 0); });
             document.getElementById('pubChatTodoBtn')?.addEventListener('click', function() {
                 const input = document.getElementById('pubChatInput');
                 const text = input.value.trim();

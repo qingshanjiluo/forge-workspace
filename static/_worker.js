@@ -62,6 +62,37 @@ async function ensureSchema(env) {
   await run("CREATE INDEX IF NOT EXISTS idx_meeting_messages_type ON meeting_messages(message_type)");
   await run("CREATE INDEX IF NOT EXISTS idx_public_chat_messages_type ON public_chat_messages(message_type)");
 
+  // ===== Collaborative drawing =====
+  await run(`CREATE TABLE IF NOT EXISTS drawing_canvases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_type TEXT NOT NULL DEFAULT 'public',
+    room_id INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL DEFAULT '协作画布',
+    data TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT 'free',
+    owner_id INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  )`);
+  await run(`CREATE TABLE IF NOT EXISTS drawing_participants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canvas_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    joined_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    UNIQUE(canvas_id, user_id)
+  )`);
+  await run(`CREATE TABLE IF NOT EXISTS drawing_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canvas_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  )`);
+  await run("CREATE INDEX IF NOT EXISTS idx_drawing_canvases_room ON drawing_canvases(room_type, room_id)");
+  await run("CREATE INDEX IF NOT EXISTS idx_drawing_participants_canvas ON drawing_participants(canvas_id)");
+  await run("CREATE INDEX IF NOT EXISTS idx_drawing_requests_canvas ON drawing_requests(canvas_id, status)");
+
   _schemaReady = true;
 }
 
@@ -837,6 +868,147 @@ post('/api/announcements/scroll', async (request, env) => {
     }
     return jsonResponse({success:true});
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
+
+// ===================== COLLABORATIVE DRAWING =====================
+get('/api/drawings', async (request, env) => {
+  try {
+    const user = await requireAuth(request, env);
+    const url = new URL(request.url);
+    const room_type = url.searchParams.get('room_type') || 'public';
+    const room_id = parseInt(url.searchParams.get('room_id') || '0', 10);
+    const { results } = await env.DB.prepare(
+      "SELECT dc.id,dc.room_type,dc.room_id,dc.title,dc.mode,dc.owner_id,dc.created_by,dc.updated_at,u.username as owner_name FROM drawing_canvases dc LEFT JOIN users u ON dc.owner_id=u.id WHERE dc.room_type=? AND dc.room_id=? ORDER BY dc.updated_at DESC"
+    ).bind(room_type, room_id).all();
+    return jsonResponse(results);
+  } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
+});
+
+get('/api/drawings/:id', async (request, env) => {
+  try {
+    const user = await requireAuth(request, env);
+    const { id } = request.params;
+    const c = await env.DB.prepare("SELECT * FROM drawing_canvases WHERE id=?").bind(id).all();
+    if (c.results.length === 0) return errorResponse('Canvas not found', 404);
+    const canvas = c.results[0];
+    const parts = await env.DB.prepare("SELECT dp.user_id,u.username,u.display_name FROM drawing_participants dp JOIN users u ON dp.user_id=u.id WHERE dp.canvas_id=?").bind(id).all();
+    const reqs = await env.DB.prepare("SELECT dr.id,dr.user_id,u.username,u.display_name FROM drawing_requests dr JOIN users u ON dr.user_id=u.id WHERE dr.canvas_id=? AND dr.status='pending'").bind(id).all();
+    return jsonResponse({ ...canvas, participants: parts.results, pending_requests: reqs.results });
+  } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
+});
+
+post('/api/drawings', async (request, env) => {
+  try {
+    const user = await requireAuth(request, env);
+    const { room_type, room_id, title, mode } = await request.json();
+    const rt = room_type || 'public';
+    const rid = parseInt(room_id || '0', 10);
+    const t = (title || '协作画布').toString().substring(0, 100);
+    const md = (mode === 'pixel') ? 'pixel' : 'free';
+    const { results } = await env.DB.prepare(
+      "INSERT INTO drawing_canvases (room_type,room_id,title,mode,owner_id,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,room_type,room_id,title,mode,owner_id,created_by"
+    ).bind(rt, rid, t, md, user.id, user.id).all();
+    const canvas = results[0];
+    await env.DB.prepare("INSERT OR IGNORE INTO drawing_participants (canvas_id,user_id) VALUES (?,?)").bind(canvas.id, user.id).run();
+    // post a chat message linking to the canvas
+    const meta = JSON.stringify({ canvas_id: canvas.id, title: canvas.title, mode: canvas.mode });
+    if (rt === 'meeting' && rid > 0) {
+      await env.DB.prepare("INSERT INTO meeting_messages (meeting_id,user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,?,datetime('now','localtime'))").bind(rid, user.id, '创建了协作画布', 'drawing', meta).run();
+    } else {
+      await env.DB.prepare("INSERT INTO public_chat_messages (user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,datetime('now','localtime'))").bind(user.id, '创建了协作画布', 'drawing', meta).run();
+    }
+    return jsonResponse(canvas, 201);
+  } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
+});
+
+put('/api/drawings/:id', async (request, env) => {
+  try {
+    const user = await requireAuth(request, env);
+    const { id } = request.params;
+    const { data } = await request.json();
+    const c = await env.DB.prepare("SELECT owner_id FROM drawing_canvases WHERE id=?").bind(id).all();
+    if (c.results.length === 0) return errorResponse('Canvas not found', 404);
+    if (c.results[0].owner_id !== user.id) return errorResponse('只有当前操控人可以绘制', 403);
+    const d = (data || '').toString().substring(0, 3000000);
+    await env.DB.prepare("UPDATE drawing_canvases SET data=?,updated_at=datetime('now','localtime') WHERE id=?").bind(d, id).run();
+    return jsonResponse({ success: true });
+  } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
+});
+
+post('/api/drawings/:id/join', async (request, env) => {
+  try {
+    const user = await requireAuth(request, env);
+    const { id } = request.params;
+    await env.DB.prepare("INSERT OR IGNORE INTO drawing_participants (canvas_id,user_id) VALUES (?,?)").bind(id, user.id).run();
+    return jsonResponse({ success: true });
+  } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
+});
+
+post('/api/drawings/:id/leave', async (request, env) => {
+  try {
+    const user = await requireAuth(request, env);
+    const { id } = request.params;
+    await env.DB.prepare("DELETE FROM drawing_participants WHERE canvas_id=? AND user_id=?").bind(id, user.id).run();
+    // if owner leaves, transfer ownership to another participant
+    const c = await env.DB.prepare("SELECT owner_id FROM drawing_canvases WHERE id=?").bind(id).all();
+    if (c.results.length > 0 && c.results[0].owner_id === user.id) {
+      const next = await env.DB.prepare("SELECT user_id FROM drawing_participants WHERE canvas_id=? AND user_id!=? LIMIT 1").bind(id, user.id).all();
+      if (next.results.length > 0) {
+        await env.DB.prepare("UPDATE drawing_canvases SET owner_id=? WHERE id=?").bind(next.results[0].user_id, id).run();
+      }
+    }
+    return jsonResponse({ success: true });
+  } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
+});
+
+post('/api/drawings/:id/request-control', async (request, env) => {
+  try {
+    const user = await requireAuth(request, env);
+    const { id } = request.params;
+    const c = await env.DB.prepare("SELECT owner_id FROM drawing_canvases WHERE id=?").bind(id).all();
+    if (c.results.length === 0) return errorResponse('Canvas not found', 404);
+    if (c.results[0].owner_id === user.id) return errorResponse('你已经是操控人', 400);
+    const existing = await env.DB.prepare("SELECT id FROM drawing_requests WHERE canvas_id=? AND user_id=? AND status='pending'").bind(id, user.id).all();
+    if (existing.results.length > 0) return errorResponse('已发送申请，等待操控人同意', 400);
+    await env.DB.prepare("INSERT INTO drawing_requests (canvas_id,user_id,status,created_at) VALUES (?,?,'pending',datetime('now','localtime'))").bind(id, user.id).run();
+    return jsonResponse({ success: true });
+  } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
+});
+
+post('/api/drawings/:id/control', async (request, env) => {
+  try {
+    const user = await requireAuth(request, env);
+    const { id } = request.params;
+    const { request_id, action } = await request.json();
+    const c = await env.DB.prepare("SELECT owner_id FROM drawing_canvases WHERE id=?").bind(id).all();
+    if (c.results.length === 0) return errorResponse('Canvas not found', 404);
+    if (c.results[0].owner_id !== user.id) return errorResponse('只有操控人可以处理申请', 403);
+    const r = await env.DB.prepare("SELECT id,user_id FROM drawing_requests WHERE id=? AND canvas_id=? AND status='pending'").bind(request_id, id).all();
+    if (r.results.length === 0) return errorResponse('申请不存在或已处理', 404);
+    if (action === 'approve') {
+      await env.DB.prepare("UPDATE drawing_requests SET status='approved' WHERE id=?").bind(request_id).run();
+      await env.DB.prepare("UPDATE drawing_canvases SET owner_id=? WHERE id=?").bind(r.results[0].user_id, id).run();
+      await env.DB.prepare("INSERT OR IGNORE INTO drawing_participants (canvas_id,user_id) VALUES (?,?)").bind(id, r.results[0].user_id).run();
+    } else {
+      await env.DB.prepare("UPDATE drawing_requests SET status='rejected' WHERE id=?").bind(request_id).run();
+    }
+    return jsonResponse({ success: true });
+  } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
+});
+
+del('/api/drawings/:id', async (request, env) => {
+  try {
+    const user = await requireAuth(request, env);
+    const { id } = request.params;
+    const c = await env.DB.prepare("SELECT created_by,owner_id FROM drawing_canvases WHERE id=?").bind(id).all();
+    if (c.results.length === 0) return errorResponse('Canvas not found', 404);
+    const canvas = c.results[0];
+    if (canvas.created_by !== user.id && canvas.owner_id !== user.id && user.role !== 'admin') return errorResponse('无权删除', 403);
+    await env.DB.prepare("DELETE FROM drawing_canvases WHERE id=?").bind(id).run();
+    await env.DB.prepare("DELETE FROM drawing_participants WHERE canvas_id=?").bind(id).run();
+    await env.DB.prepare("DELETE FROM drawing_requests WHERE canvas_id=?").bind(id).run();
+    return jsonResponse({ success: true });
+  } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
 });
 
 // ===================== IMAGE UPLOAD =====================
