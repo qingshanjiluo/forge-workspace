@@ -34,7 +34,7 @@ async function getSessionUser(request, env) {
   }
   if (!token) return null;
   const { results } = await env.DB.prepare(
-    `SELECT u.id, u.username, u.role, u.display_name
+    `SELECT u.id, u.username, u.role, u.display_name, u.avatar, u.group_id
      FROM sessions s JOIN users u ON s.user_id = u.id
      WHERE s.token = ? AND (s.expires_at IS NULL OR s.expires_at > datetime('now','localtime'))`
   ).bind(token).all();
@@ -129,7 +129,11 @@ get('/api/status', () => {
 
 // ===================== AUTH =====================
 get('/api/auth/me', async (request, env) => {
-  try { const user = await requireAuth(request, env); return jsonResponse(user); }
+  try { const user = await requireAuth(request, env);
+    let group=null;
+    if (user.group_id) { const g=await env.DB.prepare('SELECT id,name,color,icon FROM groups WHERE id=?').bind(user.group_id).all(); if (g.results.length>0) group=g.results[0]; }
+    return jsonResponse({...user,group});
+  }
   catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse('Internal error', 500); }
 });
 
@@ -624,19 +628,19 @@ get('/api/scroll-announcement', async (request, env) => {
 // ===================== ADMIN =====================
 get('/api/admin/users', async (request, env) => {
   try { const user=await requireAuth(request,env); requireAdmin(user);
-    const {results}=await env.DB.prepare('SELECT id,username,role,display_name,created_at FROM users ORDER BY created_at DESC').all();
+    const {results}=await env.DB.prepare('SELECT id,username,role,display_name,group_id,avatar,created_at FROM users ORDER BY created_at DESC').all();
     return jsonResponse(results);
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/admin/users', async (request, env) => {
   try { const user=await requireAuth(request,env); requireAdmin(user);
-    const {username,password,role}=await request.json();
+    const {username,password,role,group_id}=await request.json();
     if (!username||!password) return errorResponse('Username and password required',400);
     const existing=await env.DB.prepare('SELECT id FROM users WHERE username=?').bind(username).all();
     if (existing.results.length>0) return errorResponse('Already taken',409);
     const hashed=await hashPassword(password);
-    await env.DB.prepare('INSERT INTO users (username,password,role,display_name) VALUES (?,?,?,?)').bind(username,hashed,role||'user',username).run();
+    await env.DB.prepare('INSERT INTO users (username,password,role,display_name,group_id) VALUES (?,?,?,?,?)').bind(username,hashed,role||'user',username,group_id||null).run();
     return jsonResponse({success:true},201);
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
@@ -664,6 +668,49 @@ post('/api/admin/users/:id/reset', async (request, env) => {
     await env.DB.prepare('UPDATE users SET password=? WHERE id=?').bind(hashed,id).run();
     await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(id).run();
     return jsonResponse({success:true});
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
+
+// ===================== GROUPS =====================
+get('/api/groups', async (request, env) => {
+  try { const user=await requireAuth(request,env);
+    const {results}=await env.DB.prepare('SELECT id,name,description,color,icon,permissions,is_system FROM groups ORDER BY is_system DESC,name ASC').all();
+    return jsonResponse(results.map(g=>({...g,permissions:JSON.parse(g.permissions||'[]')})));
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
+post('/api/admin/groups', async (request, env) => {
+  try { const user=await requireAuth(request,env); requireAdmin(user); const {name,description,color,icon,permissions}=await request.json();
+    if (!name||name.trim().length===0) return errorResponse('Name required',400);
+    const {results}=await env.DB.prepare("INSERT INTO groups (name,description,color,icon,permissions) VALUES (?,?,?,?,?) RETURNING id").bind(name.trim().substring(0,50),description||'',color||'#9a9792',icon||'fa-user',JSON.stringify(permissions||[])).all();
+    return jsonResponse(results[0],201);
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
+put('/api/admin/groups/:id', async (request, env) => {
+  try { const user=await requireAuth(request,env); requireAdmin(user); const {id}=request.params; const data=await request.json();
+    const existing=await env.DB.prepare('SELECT id FROM groups WHERE id=?').bind(id).all();
+    if (existing.results.length===0) return errorResponse('Not found',404);
+    await env.DB.prepare('UPDATE groups SET name=?,description=?,color=?,icon=?,permissions=? WHERE id=?').bind(data.name||'',data.description||'',data.color||'#9a9792',data.icon||'fa-user',JSON.stringify(data.permissions||[]),id).run();
+    return jsonResponse({success:true});
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
+del('/api/admin/groups/:id', async (request, env) => {
+  try { const user=await requireAuth(request,env); requireAdmin(user); const {id}=request.params;
+    const existing=await env.DB.prepare('SELECT id,is_system FROM groups WHERE id=?').bind(id).all();
+    if (existing.results.length===0) return errorResponse('Not found',404);
+    if (existing.results[0].is_system) return errorResponse('Cannot delete system group',400);
+    await env.DB.prepare('UPDATE users SET group_id=NULL WHERE group_id=?').bind(id).run();
+    await env.DB.prepare('DELETE FROM groups WHERE id=?').bind(id).run();
+    return jsonResponse({success:true});
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
+
+// ===================== PROFILE =====================
+put('/api/auth/profile', async (request, env) => {
+  try { const user=await requireAuth(request,env); const {display_name,avatar}=await request.json();
+    if (display_name!==undefined) { const dn=display_name.trim().substring(0,50); if (dn.length>0) await env.DB.prepare('UPDATE users SET display_name=? WHERE id=?').bind(dn,user.id).run(); }
+    if (avatar!==undefined) await env.DB.prepare('UPDATE users SET avatar=? WHERE id=?').bind(avatar.substring(0,50000),user.id).run();
+    const {results}=await env.DB.prepare('SELECT id,username,role,display_name,avatar,group_id FROM users WHERE id=?').bind(user.id).all();
+    return jsonResponse(results[0]);
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
