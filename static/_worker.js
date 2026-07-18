@@ -216,7 +216,7 @@ get('/api/todos', async (request, env) => {
     const order = url.searchParams.get('order') || 'desc';
     const allowedSort = ['created_at','priority','due_date'].includes(sort)?sort:'created_at';
     const allowedOrder = order==='asc'?'ASC':'DESC';
-    let q = 'SELECT id,title,priority,progress,due_date,created_at,updated_at FROM todos WHERE user_id=?';
+    let q = 'SELECT id,title,priority,progress,due_date,remark,created_at,updated_at FROM todos WHERE user_id=?';
     const p=[user.id];
     if (filter==='active') q+=" AND progress<100";
     else if (filter==='done') q+=" AND progress=100";
@@ -228,11 +228,12 @@ get('/api/todos', async (request, env) => {
 
 post('/api/todos', async (request, env) => {
   try {
-    const user=await requireAuth(request,env); const {title,priority,due_date}=await request.json();
-    if (!title||title.trim().length===0) return errorResponse('Title required',400);
-    const st=title.trim().substring(0,500); const p=priority||'medium';
+    const user=await requireAuth(request,env); const {title,content,priority,due_date,deadline}=await request.json();
+    const ttl=title||content; if (!ttl||ttl.trim().length===0) return errorResponse('Title required',400);
+    const st=ttl.trim().substring(0,500); const p=priority||'medium';
     const ap=['low','medium','high','urgent'].includes(p)?p:'medium';
-    const {results}=await env.DB.prepare("INSERT INTO todos (user_id,title,priority,due_date,progress,created_at,updated_at) VALUES (?,?,?,?,0,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,priority,progress,due_date,created_at").bind(user.id,st,ap,due_date||null).all();
+    const dd=due_date||deadline||null;
+    const {results}=await env.DB.prepare("INSERT INTO todos (user_id,title,priority,due_date,progress,created_at,updated_at) VALUES (?,?,?,?,0,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,priority,progress,due_date,remark,created_at").bind(user.id,st,ap,dd).all();
     return jsonResponse(results[0],201);
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
@@ -240,15 +241,16 @@ post('/api/todos', async (request, env) => {
 put('/api/todos/:id', async (request, env) => {
   try {
     const user=await requireAuth(request,env); const {id}=request.params;
-    const {title,priority,progress,due_date}=await request.json();
+    const data=await request.json();
     const existing=await env.DB.prepare('SELECT * FROM todos WHERE id=? AND user_id=?').bind(id,user.id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
     const t=existing.results[0];
-    const nt=title!==undefined?title.trim().substring(0,500):t.title;
-    const np=priority!==undefined?(['low','medium','high','urgent'].includes(priority)?priority:t.priority):t.priority;
-    const npr=progress!==undefined?Math.max(0,Math.min(100,Number(progress))):t.progress;
-    const nd=due_date!==undefined?due_date:t.due_date;
-    await env.DB.prepare("UPDATE todos SET title=?,priority=?,progress=?,due_date=?,updated_at=datetime('now','localtime') WHERE id=? AND user_id=?").bind(nt,np,npr,nd,id,user.id).run();
+    const nt=data.title||data.content!==undefined?(data.title||data.content||'').trim().substring(0,500):t.title;
+    const np=data.priority!==undefined?(['low','medium','high','urgent'].includes(data.priority)?data.priority:t.priority):t.priority;
+    const npr=data.progress!==undefined?Math.max(0,Math.min(100,Number(data.progress))):t.progress;
+    const nd=data.due_date!==undefined?data.due_date:data.deadline!==undefined?data.deadline:t.due_date;
+    const nr=data.remark!==undefined?data.remark.trim().substring(0,1000):t.remark;
+    await env.DB.prepare("UPDATE todos SET title=?,priority=?,progress=?,due_date=?,remark=?,updated_at=datetime('now','localtime') WHERE id=? AND user_id=?").bind(nt,np,npr,nd,nr,id,user.id).run();
     const {results}=await env.DB.prepare('SELECT * FROM todos WHERE id=?').bind(id).all();
     return jsonResponse(results[0]);
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
