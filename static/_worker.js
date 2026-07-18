@@ -51,8 +51,23 @@ async function ensureSchema(env) {
   await run("INSERT OR IGNORE INTO groups (id, name, color, icon, is_system) VALUES (2, '成员', '#5c9ad4', 'fa-user', 1)");
   await run("INSERT OR IGNORE INTO groups (id, name, color, icon, is_system) VALUES (3, '访客', '#9a9792', 'fa-eye', 1)");
 
-  // todos: add remark if missing
+  // todos: ensure table + columns exist
+  await run(`CREATE TABLE IF NOT EXISTS todos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT,
+    content TEXT,
+    priority TEXT NOT NULL DEFAULT 'medium',
+    progress INTEGER NOT NULL DEFAULT 0 CHECK(progress >= 0 AND progress <= 100),
+    due_date TEXT,
+    remark TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  )`);
+  await run("ALTER TABLE todos ADD COLUMN title TEXT");
+  await run("ALTER TABLE todos ADD COLUMN content TEXT");
   await run("ALTER TABLE todos ADD COLUMN remark TEXT");
+  await run("ALTER TABLE todos ADD COLUMN progress INTEGER");
 
   // meeting_presence: unique index for ON CONFLICT upsert
   await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_meeting_presence ON meeting_presence(meeting_id, user_id)");
@@ -130,8 +145,9 @@ function requireAdmin(user) {
 function extractPagination(url) {
   const u = new URL(url);
   const before_id = u.searchParams.get('before_id') || null;
+  const since_id = u.searchParams.get('since_id') || null;
   const limit = Math.min(parseInt(u.searchParams.get('limit') || '50', 10), 100);
-  return { before_id, limit };
+  return { before_id, since_id, limit };
 }
 
 async function isPrivateIP(hostname) {
@@ -414,11 +430,12 @@ del('/api/meetings/:id', async (request, env) => {
 
 get('/api/meetings/:id/chat', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params;
-    const {before_id,limit}=extractPagination(request.url);
+    const {before_id,since_id,limit}=extractPagination(request.url);
     await env.DB.prepare('SELECT id FROM meetings WHERE id=?').bind(id).all();
     let q="SELECT mc.id,mc.content,mc.message_type,mc.meta_data,mc.created_at,u.id as user_id,u.username,u.display_name FROM meeting_messages mc JOIN users u ON mc.user_id=u.id WHERE mc.meeting_id=?";
     const p=[id];
-    if (before_id) { q+=' AND mc.id<?'; p.push(before_id); }
+    if (since_id) { q+=' AND mc.id>?'; p.push(since_id); }
+    else if (before_id) { q+=' AND mc.id<?'; p.push(before_id); }
     q+=' ORDER BY mc.id DESC LIMIT ?'; p.push(limit);
     const {results}=await env.DB.prepare(q).bind(...p).all();
     return jsonResponse(results.reverse());
@@ -463,10 +480,11 @@ post('/api/meetings/:id/presence', async (request, env) => {
 // ===================== PUBLIC CHAT =====================
 get('/api/chat', async (request, env) => {
   try { const user=await requireAuth(request,env);
-    const {before_id,limit}=extractPagination(request.url);
+    const {before_id,since_id,limit}=extractPagination(request.url);
     let q="SELECT mc.id,mc.content,mc.message_type,mc.meta_data,mc.created_at,u.id as user_id,u.username,u.display_name FROM public_chat_messages mc JOIN users u ON mc.user_id=u.id WHERE 1=1";
     const p=[];
-    if (before_id) { q+=' AND mc.id<?'; p.push(before_id); }
+    if (since_id) { q+=' AND mc.id>?'; p.push(since_id); }
+    else if (before_id) { q+=' AND mc.id<?'; p.push(before_id); }
     q+=' ORDER BY mc.id DESC LIMIT ?'; p.push(limit);
     const {results}=await env.DB.prepare(q).bind(...p).all();
     return jsonResponse(results.reverse());
@@ -786,7 +804,7 @@ del('/api/admin/groups/:id', async (request, env) => {
 put('/api/auth/profile', async (request, env) => {
   try { const user=await requireAuth(request,env); const {display_name,avatar}=await request.json();
     if (display_name!==undefined) { const dn=display_name.trim().substring(0,50); if (dn.length>0) await env.DB.prepare('UPDATE users SET display_name=? WHERE id=?').bind(dn,user.id).run(); }
-    if (avatar!==undefined) await env.DB.prepare('UPDATE users SET avatar=? WHERE id=?').bind(avatar.substring(0,50000),user.id).run();
+    if (avatar!==undefined) await env.DB.prepare('UPDATE users SET avatar=? WHERE id=?').bind(avatar.substring(0,3000000),user.id).run();
     const {results}=await env.DB.prepare('SELECT id,username,role,display_name,avatar,group_id FROM users WHERE id=?').bind(user.id).all();
     return jsonResponse(results[0]);
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
@@ -822,6 +840,7 @@ del('/api/tokens/:id', async (request, env) => {
 get('/api/auth/tokens', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
 post('/api/auth/tokens', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
 get('/api/users', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/users','/api/admin/users'), request), env); });
+post('/api/users', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/users','/api/admin/users'), request), env); });
 del('/api/auth/tokens/:id', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
 put('/api/admin/users/:id/group', async (request, env) => {
   try { const user=await requireAuth(request,env); requireAdmin(user); const {id}=request.params; const {group_id}=await request.json();

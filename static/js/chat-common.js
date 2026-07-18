@@ -9,6 +9,34 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+// 安全策略：剥离脚本/事件处理器/危险标签，仅保留基础展示标签
+const ALLOWED_HTML_TAGS = /^(p|b|i|u|strong|em|br|hr|h1|h2|h3|h4|h5|h6|ul|ol|li|div|span|table|thead|tbody|tr|td|th|blockquote|code|pre|a|img|font|small|mark|sub|sup)$/i;
+const ALLOWED_HTML_ATTRS = /^(href|src|alt|title|width|height|style|target|rel|class|id)$/i;
+function sanitizeHtmlFragment(html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html || '';
+    (function walk(node) {
+        const childs = Array.from(node.childNodes);
+        childs.forEach(child => {
+            if (child.nodeType === 1) {
+                const tag = child.tagName.toLowerCase();
+                if (!ALLOWED_HTML_TAGS.test(tag) || tag === 'script' || tag === 'iframe' || tag === 'object' || tag === 'embed' || tag === 'form' || tag === 'input' || tag === 'link' || tag === 'meta' || tag === 'style') {
+                    child.remove(); return;
+                }
+                Array.from(child.attributes).forEach(attr => {
+                    const an = attr.name.toLowerCase();
+                    if (!ALLOWED_HTML_ATTRS.test(an)) { child.removeAttribute(attr.name); return; }
+                    if (/^\s*javascript:/i.test(attr.value) || /on\w+\s*=/.test(attr.value)) { child.removeAttribute(attr.name); return; }
+                    if (an === 'style' && /expression|url\s*\(|@import/i.test(attr.value)) { child.removeAttribute(attr.name); return; }
+                });
+                if (tag === 'a') { child.setAttribute('target', '_blank'); child.setAttribute('rel', 'noopener noreferrer'); }
+                walk(child);
+            }
+        });
+    })(tpl.content);
+    return tpl.innerHTML;
+}
+
 function extractUrls(text) {
     return text.match(/https?:\/\/[^\s<>"]+/g) || [];
 }
@@ -59,13 +87,13 @@ function renderMessageContent(m) {
     }
 
     if (type === 'html') {
-        const htmlContent = m.content.replace(/\[html\]([\s\S]*?)\[\/html\]/g, '$1');
+        let htmlContent = m.content.replace(/\[html\]([\s\S]*?)\[\/html\]/g, '$1');
+        htmlContent = sanitizeHtmlFragment(htmlContent);
         return `
             <div style="margin:4px 0;">
                 <div style="font-size:11px;color:var(--accent);margin-bottom:4px;"><i class="fas fa-code"></i> HTML 预览</div>
-                <iframe srcdoc="${escapeHtml(htmlContent)}" sandbox="allow-same-origin"
-                    style="width:100%;border:1px solid var(--border);border-radius:8px;max-height:400px;background:#fff;">
-                </iframe>
+                <iframe srcdoc="${escapeHtml(htmlContent)}" sandbox=""
+                    style="width:100%;border:1px solid var(--border);border-radius:8px;max-height:400px;background:#fff;"></iframe>
             </div>`;
     }
 

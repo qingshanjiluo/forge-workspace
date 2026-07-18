@@ -739,8 +739,9 @@
                         <input type="datetime-local" id="meetingTime" class="form-control" required>
                     </div>
                     <div class="form-group">
-                        <label>参与人（逗号分隔）</label>
-                        <input type="text" id="meetingParticipants" class="form-control" placeholder="张三, 李四">
+                        <label>参与人（选择站点成员，可多选）</label>
+                        <select id="meetingParticipants" class="form-control" multiple size="4"></select>
+                        <small style="opacity:0.6;">按住 Ctrl/Cmd 可多选</small>
                     </div>
                     <div class="form-group" style="grid-column:1 / -1;">
                         <label>描述</label>
@@ -1081,11 +1082,23 @@
             const file = e.target.files[0]; if (!file) return;
             const reader = new FileReader();
             reader.onload = function(ev) {
-                const dataUrl = ev.target.result;
-                document.getElementById('modalAvatarImg').src = dataUrl;
-                document.getElementById('modalAvatarImg').style.display = '';
-                document.getElementById('modalAvatarIcon').style.display = 'none';
-                window._pendingAvatar = dataUrl;
+                const img = new Image();
+                img.onload = function() {
+                    const size = 160;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = size; canvas.height = size;
+                    const ctx = canvas.getContext('2d');
+                    // cover-fit crop to square
+                    const scale = Math.max(size / img.width, size / img.height);
+                    const w = img.width * scale, h = img.height * scale;
+                    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    document.getElementById('modalAvatarImg').src = dataUrl;
+                    document.getElementById('modalAvatarImg').style.display = '';
+                    document.getElementById('modalAvatarIcon').style.display = 'none';
+                    window._pendingAvatar = dataUrl;
+                };
+                img.src = ev.target.result;
             };
             reader.readAsDataURL(file);
         }
@@ -1112,6 +1125,9 @@
         let drawCanvas, drawCtx, drawDrawing = false, drawShapeStart = null;
         let pixelSize = 16;
         let mindMapNodes = [];
+        let mindMapEdges = [];
+        let mindMapSelected = null;
+        let mindMapDrag = null;
 
         function initDraw() {
             drawCanvas = document.getElementById('drawCanvas');
@@ -1125,6 +1141,15 @@
             drawCanvas.addEventListener('touchstart', function(e) { e.preventDefault(); const t=e.touches[0]; startDraw({offsetX:t.clientX-drawCanvas.getBoundingClientRect().left,offsetY:t.clientY-drawCanvas.getBoundingClientRect().top}); });
             drawCanvas.addEventListener('touchmove', function(e) { e.preventDefault(); const t=e.touches[0]; drawMove({offsetX:t.clientX-drawCanvas.getBoundingClientRect().left,offsetY:t.clientY-drawCanvas.getBoundingClientRect().top}); });
             drawCanvas.addEventListener('touchend', endDraw);
+            drawCanvas.addEventListener('dblclick', function(e) {
+                if (drawBrush.mode !== 'mindmap') return;
+                const p = drawPt(e);
+                const node = getMindMapNodeAt(p.x, p.y);
+                if (node) {
+                    const label = prompt('编辑节点名称:', node.label);
+                    if (label !== null) { node.label = label || node.label; renderMindMap(); saveDrawState(); }
+                }
+            });
             renderDrawPalette();
             saveDrawState();
             if (drawBrush.mode === 'pixel') drawPixelGrid();
@@ -1141,7 +1166,25 @@
             return { x: (e.offsetX||0) * (drawCanvas.width/rect.width), y: (e.offsetY||0) * (drawCanvas.height/rect.height) };
         }
         function startDraw(e) {
-            if (drawBrush.mode === 'mindmap') { addMindMapNode(e.offsetX, e.offsetY); return; }
+            if (drawBrush.mode === 'mindmap') {
+                const p = drawPt(e);
+                const node = getMindMapNodeAt(p.x, p.y);
+                if (node) {
+                    if (mindMapSelected && mindMapSelected !== node.id) {
+                        // connect selected -> clicked
+                        const exists = mindMapEdges.some(ed => ed.from === mindMapSelected && ed.to === node.id);
+                        if (!exists) mindMapEdges.push({from: mindMapSelected, to: node.id});
+                        mindMapSelected = null; renderMindMap(); saveDrawState();
+                    } else {
+                        mindMapSelected = node.id;
+                        mindMapDrag = { node, dx: p.x - node.x, dy: p.y - node.y };
+                        renderMindMap();
+                    }
+                } else {
+                    mindMapSelected = null; renderMindMap();
+                }
+                return;
+            }
             const p = drawPt(e);
             if (drawBrush.mode === 'pixel') { drawPixel(p.x, p.y); return; }
             if (['line','rect','circle','arrow'].includes(drawBrush.mode)) {
@@ -1151,6 +1194,13 @@
             drawCtx.beginPath(); drawCtx.moveTo(p.x, p.y);
         }
         function drawMove(e) {
+            if (drawBrush.mode === 'mindmap' && mindMapDrag) {
+                const p = drawPt(e);
+                mindMapDrag.node.x = p.x - mindMapDrag.dx;
+                mindMapDrag.node.y = p.y - mindMapDrag.dy;
+                renderMindMap();
+                return;
+            }
             if (!drawDrawing) return;
             const p = drawPt(e);
             if (['line','rect','circle','arrow'].includes(drawBrush.mode)) {
@@ -1164,6 +1214,7 @@
             drawCtx.lineTo(p.x, p.y); drawCtx.stroke();
         }
         function endDraw() {
+            if (drawBrush.mode === 'mindmap' && mindMapDrag) { mindMapDrag = null; saveDrawState(); return; }
             if (drawDrawing) { drawDrawing = false; drawShapeStart = null; saveDrawState(); }
         }
         function drawShape(a, b) {
@@ -1205,20 +1256,37 @@
             for (let i = 0; i <= rows; i++) { drawCtx.beginPath(); drawCtx.moveTo(0, i * pixelSize); drawCtx.lineTo(drawCanvas.width, i * pixelSize); drawCtx.stroke(); }
         }
         function addMindMapNode(x, y) {
-            const id = Date.now();
+            const id = Date.now() + Math.floor(Math.random() * 1000);
             const label = prompt('节点名称:', '新节点') || '新节点';
-            mindMapNodes.push({id, x, y, label, children:[]});
+            mindMapNodes.push({id, x, y, label});
             renderMindMap();
             saveDrawState();
+        }
+        function getMindMapNodeAt(x, y) {
+            for (let i = mindMapNodes.length - 1; i >= 0; i--) {
+                const n = mindMapNodes[i];
+                const tw = drawCtx.measureText(n.label).width;
+                const rw = tw + 20, rh = 30;
+                if (x >= n.x - rw/2 && x <= n.x + rw/2 && y >= n.y - rh/2 && y <= n.y + rh/2) return n;
+            }
+            return null;
         }
         function renderMindMap() {
             if (!drawCtx) return;
             drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+            // edges first
+            mindMapEdges.forEach(e => {
+                const a = mindMapNodes.find(n => n.id === e.from), b = mindMapNodes.find(n => n.id === e.to);
+                if (!a || !b) return;
+                drawCtx.strokeStyle = 'rgba(212,140,92,0.6)'; drawCtx.lineWidth = 2;
+                drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();
+            });
             mindMapNodes.forEach(n => {
-                drawCtx.fillStyle = drawBrush.color; drawCtx.font = '13px sans-serif';
                 const tw = drawCtx.measureText(n.label).width;
                 const rw = tw + 20, rh = 30;
-                drawCtx.fillStyle = 'rgba(212,140,92,0.15)'; drawCtx.strokeStyle = drawBrush.color; drawCtx.lineWidth = 1;
+                const isSel = mindMapSelected === n.id;
+                drawCtx.fillStyle = isSel ? 'rgba(212,140,92,0.35)' : 'rgba(212,140,92,0.15)';
+                drawCtx.strokeStyle = isSel ? '#f2cc8f' : drawBrush.color; drawCtx.lineWidth = isSel ? 2 : 1;
                 drawRoundedRect(drawCtx, n.x - rw/2, n.y - rh/2, rw, rh, 6);
                 drawCtx.fill(); drawCtx.stroke();
                 drawCtx.fillStyle = '#f0ede8'; drawCtx.textAlign = 'center'; drawCtx.textBaseline = 'middle';
@@ -1641,7 +1709,9 @@
                 }
                 let html = '';
                 for (const t of todos) {
-                    const isDone = t.progress >= 100;
+                    const tTitle = t.title || t.content || '(无标题)';
+                    const tProgress = (typeof t.progress === 'number') ? t.progress : (parseInt(t.progress, 10) || 0);
+                    const isDone = tProgress >= 100;
                 const isExpiring = t.due_date && !isDone && new Date(t.due_date) <= new Date(Date.now() + 3*86400000);
                 const isOverdue = t.due_date && !isDone && new Date(t.due_date) < new Date();
                     html += `
@@ -1651,11 +1721,11 @@
                                 <span class="priority-toggle" data-id="${t.id}" data-priority="${t.priority}" style="background:${priorityColors[t.priority]};color:#fff;font-size:10px;font-weight:700;padding:1px 8px;border-radius:10px;white-space:nowrap;cursor:pointer;" title="点击切换优先级">
                                     <i class="fas ${priorityIcons[t.priority]}" style="font-size:8px;margin-right:3px;"></i>${priorityLabels[t.priority]}
                                 </span>
-                                <span class="todo-text editable" data-id="${t.id}" style="cursor:pointer;${isDone ? 'text-decoration:line-through;' : ''}" title="双击编辑">${escapeHtml(t.title)}</span>
+                                <span class="todo-text editable" data-id="${t.id}" style="cursor:pointer;${isDone ? 'text-decoration:line-through;' : ''}" title="双击编辑">${escapeHtml(tTitle)}</span>
                             </span>
                             <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:160px;">
-                                <input type="range" min="0" max="100" value="${t.progress}" class="progress-slider" data-id="${t.id}" style="flex:1;max-width:150px;">
-                                <span class="progress-label" data-id="${t.id}">${t.progress}%</span>
+                                <input type="range" min="0" max="100" value="${tProgress}" class="progress-slider" data-id="${t.id}" style="flex:1;max-width:150px;">
+                                <span class="progress-label" data-id="${t.id}">${tProgress}%</span>
                             </div>
                             ${t.due_date ? `<span style="font-size:11px;padding:2px 8px;border-radius:10px;white-space:nowrap;${isOverdue ? 'background:rgba(239,68,68,0.15);color:#ef4444;' : (isExpiring ? 'background:rgba(245,158,11,0.15);color:#f59e0b;' : 'background:var(--bg);color:var(--text-sec);')}"><i class="fas fa-calendar" style="font-size:10px;margin-right:3px;"></i>${isOverdue ? '已逾期: ' : '截止: '}${t.due_date}</span>` : ''}
                             <span class="todo-meta">${(t.created_at || '').substring(5)}</span>
@@ -1853,12 +1923,25 @@
         }
 
         // ======================== MEETINGS ========================
+        async function loadMeetingMemberOptions() {
+            const sel = document.getElementById('meetingParticipants');
+            if (!sel) return;
+            try {
+                const users = await API.get('/api/users');
+                const members = Array.isArray(users) ? users : [];
+                sel.innerHTML = members.map(u => `<option value="${u.username}">${escapeHtml(u.display_name || u.username)} (${escapeHtml(u.username)})</option>`).join('');
+            } catch (_) {
+                sel.innerHTML = '<option disabled>加载成员失败</option>';
+            }
+        }
         function initMeetings() {
+            loadMeetingMemberOptions();
             document.getElementById('meetingForm')?.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const title = document.getElementById('meetingTitle').value.trim();
                 const time = document.getElementById('meetingTime').value;
-                const participants = document.getElementById('meetingParticipants').value.trim();
+                const sel = document.getElementById('meetingParticipants');
+                const participants = Array.from(sel.selectedOptions).map(o => o.value).join(', ');
                 const description = document.getElementById('meetingDesc').value.trim();
                 if (!title || !time) return;
                 await API.post('/api/meetings', { title, meeting_time: time, participants, description });
