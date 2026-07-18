@@ -20,6 +20,51 @@ async function hashPassword(password) {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// ===================== SCHEMA SELF-HEALING =====================
+// Ensures the D1 database has all tables/columns the app needs.
+// Runs once per Worker instance (cached via module-level flag).
+let _schemaReady = false;
+async function ensureSchema(env) {
+  if (_schemaReady) return;
+  const db = env.DB;
+  const run = async (sql) => { try { await db.prepare(sql).run(); } catch (e) { console.error('schema step failed:', e.message, '| SQL:', sql); } };
+
+  // users: add avatar + group_id if missing
+  await run("ALTER TABLE users ADD COLUMN avatar TEXT");
+  await run("ALTER TABLE users ADD COLUMN group_id INTEGER");
+
+  // groups table
+  await run(`CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL DEFAULT '#9a9792',
+    icon TEXT NOT NULL DEFAULT 'fa-user',
+    permissions TEXT NOT NULL DEFAULT '[]',
+    is_system INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  )`);
+  await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_name ON groups(name)");
+
+  // default system groups
+  await run("INSERT OR IGNORE INTO groups (id, name, color, icon, is_system) VALUES (1, '管理员', '#d48c5c', 'fa-crown', 1)");
+  await run("INSERT OR IGNORE INTO groups (id, name, color, icon, is_system) VALUES (2, '成员', '#5c9ad4', 'fa-user', 1)");
+  await run("INSERT OR IGNORE INTO groups (id, name, color, icon, is_system) VALUES (3, '访客', '#9a9792', 'fa-eye', 1)");
+
+  // todos: add remark if missing
+  await run("ALTER TABLE todos ADD COLUMN remark TEXT");
+
+  // meeting_presence: unique index for ON CONFLICT upsert
+  await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_meeting_presence ON meeting_presence(meeting_id, user_id)");
+
+  // public_chat_messages / meeting_messages: support image type
+  await run("DROP INDEX IF EXISTS idx_meeting_messages_type");
+  await run("CREATE INDEX IF NOT EXISTS idx_meeting_messages_type ON meeting_messages(message_type)");
+  await run("CREATE INDEX IF NOT EXISTS idx_public_chat_messages_type ON public_chat_messages(message_type)");
+
+  _schemaReady = true;
+}
+
 async function getSessionUser(request, env) {
   const authHeader = request.headers.get('Authorization');
   let token = null;
@@ -826,6 +871,7 @@ get('/api/link-preview', async (request, env) => {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (env.DB) { try { await ensureSchema(env); } catch (e) { console.error('ensureSchema error:', e.message); } }
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS', 'access-control-allow-headers': 'Content-Type, Authorization', 'access-control-allow-credentials': 'true' } });
