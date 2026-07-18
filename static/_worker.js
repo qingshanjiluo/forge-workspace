@@ -232,7 +232,7 @@ post('/api/todos', async (request, env) => {
     if (!title||title.trim().length===0) return errorResponse('Title required',400);
     const st=title.trim().substring(0,500); const p=priority||'medium';
     const ap=['low','medium','high','urgent'].includes(p)?p:'medium';
-    const {results}=await env.DB.prepare("INSERT INTO todos (user_id,title,priority,due_date,status,progress,created_at,updated_at) VALUES (?,?,?,?,'active',0,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,priority,progress,status,due_date,created_at").bind(user.id,st,ap,due_date||null).all();
+    const {results}=await env.DB.prepare("INSERT INTO todos (user_id,title,priority,due_date,progress,created_at,updated_at) VALUES (?,?,?,?,0,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,priority,progress,due_date,created_at").bind(user.id,st,ap,due_date||null).all();
     return jsonResponse(results[0],201);
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
@@ -240,7 +240,7 @@ post('/api/todos', async (request, env) => {
 put('/api/todos/:id', async (request, env) => {
   try {
     const user=await requireAuth(request,env); const {id}=request.params;
-    const {title,priority,progress,due_date,status}=await request.json();
+    const {title,priority,progress,due_date}=await request.json();
     const existing=await env.DB.prepare('SELECT * FROM todos WHERE id=? AND user_id=?').bind(id,user.id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
     const t=existing.results[0];
@@ -248,8 +248,7 @@ put('/api/todos/:id', async (request, env) => {
     const np=priority!==undefined?(['low','medium','high','urgent'].includes(priority)?priority:t.priority):t.priority;
     const npr=progress!==undefined?Math.max(0,Math.min(100,Number(progress))):t.progress;
     const nd=due_date!==undefined?due_date:t.due_date;
-    const ns=status!==undefined?(['active','done','archived'].includes(status)?status:t.status):t.status;
-    await env.DB.prepare("UPDATE todos SET title=?,priority=?,progress=?,due_date=?,status=?,updated_at=datetime('now','localtime') WHERE id=? AND user_id=?").bind(nt,np,npr,nd,ns,id,user.id).run();
+    await env.DB.prepare("UPDATE todos SET title=?,priority=?,progress=?,due_date=?,updated_at=datetime('now','localtime') WHERE id=? AND user_id=?").bind(nt,np,npr,nd,id,user.id).run();
     const {results}=await env.DB.prepare('SELECT * FROM todos WHERE id=?').bind(id).all();
     return jsonResponse(results[0]);
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
@@ -350,13 +349,13 @@ post('/api/meetings/:id/chat', async (request, env) => {
     if (!content||content.trim().length===0) return errorResponse('Content required',400);
     await env.DB.prepare('SELECT id FROM meetings WHERE id=?').bind(id).all();
     content=content.trim().substring(0,5000);
-    const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):null;
+    const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):'{}';
     const {results}=await env.DB.prepare("INSERT INTO meeting_messages (meeting_id,user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(id,user.id,content,mt,md).all();
     let todoCreated=null;
     if (mt==='todo'||content.startsWith('/todo ')) {
       const tt=content.replace('/todo ','').trim();
       if (tt.length>0) {
-        const tr=await env.DB.prepare("INSERT INTO todos (user_id,title,priority,status,progress,created_at,updated_at) VALUES (?,?,'medium','active',0,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title").bind(user.id,tt.substring(0,500)).all();
+        const tr=await env.DB.prepare("INSERT INTO todos (user_id,title,priority,progress,created_at,updated_at) VALUES (?,?,'medium',0,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title").bind(user.id,tt.substring(0,500)).all();
         todoCreated=tr.results[0];
       }
     }
@@ -396,13 +395,13 @@ post('/api/chat', async (request, env) => {
     let {content,message_type,meta_data}=await request.json();
     if (!content||content.trim().length===0) return errorResponse('Content required',400);
     content=content.trim().substring(0,5000);
-    const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):null;
+    const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):'{}';
     const {results}=await env.DB.prepare("INSERT INTO public_chat_messages (user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(user.id,content,mt,md).all();
     let todoCreated=null;
     if (content.startsWith('/todo ')) {
       const tt=content.replace('/todo ','').trim();
       if (tt.length>0) {
-        const tr=await env.DB.prepare("INSERT INTO todos (user_id,title,priority,status,progress,created_at,updated_at) VALUES (?,?,'medium','active',0,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title").bind(user.id,tt.substring(0,500)).all();
+        const tr=await env.DB.prepare("INSERT INTO todos (user_id,title,priority,progress,created_at,updated_at) VALUES (?,?,'medium',0,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title").bind(user.id,tt.substring(0,500)).all();
         todoCreated=tr.results[0];
       }
     }
@@ -442,13 +441,13 @@ post('/api/documents', async (request, env) => {
       const d=existing.results[0]; const nv=(d.version||0)+1;
       const nc=content!==undefined?content:d.content;
       await env.DB.prepare("UPDATE shared_documents SET title=?,content=?,doc_type=?,version=?,updated_at=datetime('now','localtime') WHERE id=? AND user_id=?").bind(st,nc,dt,nv,id,user.id).run();
-      if (content!==undefined) { await env.DB.prepare("INSERT INTO document_revisions (document_id,version,content,summary,user_id,created_at) VALUES (?,?,?,?,?,datetime('now','localtime'))").bind(id,nv,content,ns||null,user.id).run(); }
+      if (content!==undefined) { await env.DB.prepare("INSERT INTO document_revisions (document_id,version,content,summary,user_id,created_at) VALUES (?,?,?,?,?,datetime('now','localtime'))").bind(id,nv,content,ns||'{}',user.id).run(); }
       const {results}=await env.DB.prepare('SELECT * FROM shared_documents WHERE id=?').bind(id).all();
       return jsonResponse(results[0]);
     } else {
-      const {results}=await env.DB.prepare("INSERT INTO shared_documents (user_id,title,content,doc_type,version,created_at,updated_at) VALUES (?,?,?,?,1,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,content,doc_type,version,created_at").bind(user.id,st,content||'',dt,summary||null).all();
+      const {results}=await env.DB.prepare("INSERT INTO shared_documents (user_id,title,content,doc_type,version,created_at,updated_at) VALUES (?,?,?,?,1,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,content,doc_type,version,created_at").bind(user.id,st,content||'',dt).all();
       const d=results[0];
-      await env.DB.prepare("INSERT INTO document_revisions (document_id,version,content,summary,user_id,created_at) VALUES (?,1,?,?,?,datetime('now','localtime'))").bind(d.id,content||'',summary||null,user.id).run();
+      await env.DB.prepare("INSERT INTO document_revisions (document_id,version,content,summary,user_id,created_at) VALUES (?,1,?,?,?,datetime('now','localtime'))").bind(d.id,content||'',summary||'{}',user.id).run();
       return jsonResponse(d,201);
     }
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
@@ -579,9 +578,9 @@ post('/api/announcements', async (request, env) => {
     if (!title||title.trim().length===0) return errorResponse('Title required',400);
     if (id) { const existing=await env.DB.prepare('SELECT id FROM announcements WHERE id=?').bind(id).all();
       if (existing.results.length===0) return errorResponse('Not found',404);
-      await env.DB.prepare("UPDATE announcements SET title=?,content=?,is_scroll=?,scroll_content=?,updated_at=datetime('now','localtime') WHERE id=?").bind(title.trim().substring(0,300),content||'',is_scroll?1:0,scroll_content||null,id).run();
+      await env.DB.prepare("UPDATE announcements SET title=?,content=?,is_scroll=?,scroll_content=?,updated_at=datetime('now','localtime') WHERE id=?").bind(title.trim().substring(0,300),content||'',is_scroll?1:0,scroll_content||'',id).run();
       const {results}=await env.DB.prepare('SELECT * FROM announcements WHERE id=?').bind(id).all(); return jsonResponse(results[0]);
-    } else { const {results}=await env.DB.prepare("INSERT INTO announcements (title,content,is_scroll,scroll_content,user_id,created_at,updated_at) VALUES (?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,content,is_scroll,scroll_content,created_at").bind(title.trim().substring(0,300),content||'',is_scroll?1:0,scroll_content||null,user.id).all(); return jsonResponse(results[0],201); }
+    } else { const {results}=await env.DB.prepare("INSERT INTO announcements (title,content,is_scroll,scroll_content,user_id,created_at,updated_at) VALUES (?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,content,is_scroll,scroll_content,created_at").bind(title.trim().substring(0,300),content||'',is_scroll?1:0,scroll_content||'',user.id).all(); return jsonResponse(results[0],201); }
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
@@ -688,7 +687,20 @@ post('/api/admin/users/:id/reset-password', async (request, env) => {
     return jsonResponse({success:true});
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
-get('/api/auth/tokens', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
+get('/api/announcements/scroll', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/announcements/scroll','/api/scroll-announcement'), request), env); });
+post('/api/auth/change-password', async (request, env) => {
+  try { const user=await requireAuth(request,env); const {old_password,new_password,confirm_password}=await request.json();
+    if (!old_password||!new_password) return errorResponse('Current and new password required',400);
+    if (new_password!==confirm_password) return errorResponse('Passwords do not match',400);
+    const {results}=await env.DB.prepare('SELECT password FROM users WHERE id=?').bind(user.id).all();
+    if (results.length===0) return errorResponse('User not found',404);
+    const hashed=await hashPassword(old_password);
+    if (results[0].password!==hashed) return errorResponse('Current password incorrect',401);
+    const newHashed=await hashPassword(new_password);
+    await env.DB.prepare('UPDATE users SET password=? WHERE id=?').bind(newHashed,user.id).run();
+    return jsonResponse({success:true,message:'Password changed'});
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
 
 // ===================== LINK PREVIEW =====================
 get('/api/link-preview', async (request, env) => {
