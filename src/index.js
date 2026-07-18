@@ -84,7 +84,7 @@ router.post('/api/auth/login', async (request, env) => {
     if (!username || !password) return errorResponse('Username and password required', 400);
     const hashed = await hashPassword(password);
     const { results } = await env.DB.prepare(
-      'SELECT id, username, role, display_name, email, avatar_url FROM users WHERE username = ? AND password_hash = ?'
+      'SELECT id, username, role, display_name FROM users WHERE username = ? AND password = ?'
     ).bind(username, hashed).all();
     if (results.length === 0) return errorResponse('Invalid username or password', 401);
     const user = results[0];
@@ -112,7 +112,7 @@ router.post('/api/auth/register', async (request, env) => {
     if (existing.results.length > 0) return errorResponse('Username already taken', 409);
     const hashed = await hashPassword(password);
     await env.DB.prepare(
-      'INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)'
+      'INSERT INTO users (username, password, display_name, role) VALUES (?, ?, ?, ?)'
     ).bind(username, hashed, display_name || username, 'user').run();
     return jsonResponse({ success: true, message: 'User registered' }, 201);
   } catch (e) {

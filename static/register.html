@@ -107,7 +107,7 @@
             btn.innerHTML = '<span class="spinner"></span> 注册中...';
 
             try {
-                const res = await fetch('/api/auth/register', {
+                const res = await fetch('https://forge-workspace.sifangzhiji.workers.dev/api/auth/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, password: pwd, display_name: displayName || undefined })

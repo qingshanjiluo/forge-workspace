@@ -1,12 +1,19 @@
+const API_BASE = 'https://forge-workspace.sifangzhiji.workers.dev';
+
+function getToken() { return localStorage.getItem('forge_token'); }
+
 const API = {
   async request(method, path, body) {
     const opts = { method, headers: {} };
+    const token = getToken();
+    if (token) opts.headers['Authorization'] = 'Bearer ' + token;
     if (body) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    const res = await fetch(path, opts);
+    const res = await fetch(API_BASE + path, opts);
     if (res.status === 401) {
+      localStorage.removeItem('forge_token');
       window.location.href = '/login.html';
       return;
     }
