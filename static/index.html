@@ -446,6 +446,16 @@
         #collabCanvasModal .modal { background:var(--bg-card); }
         #collabCanvasModal .draw-tools button { padding:5px 10px;font-size:11px; }
         #collabCanvasModal .draw-tools button.active { background:var(--accent);color:var(--bg);border-color:var(--accent); }
+        #miniDrawPopover .draw-tools button { padding:4px 8px;font-size:11px; }
+        #miniDrawPopover .draw-tools button.active { background:var(--accent);color:var(--bg);border-color:var(--accent); }
+        .gallery-card { border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;background:var(--bg-card);transition:transform .15s,box-shadow .15s; }
+        .gallery-card:hover { transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,0.25);border-color:var(--accent); }
+        .gallery-thumb { width:100%;height:120px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;border-bottom:1px solid var(--border); }
+        .gallery-thumb img { width:100%;height:100%;object-fit:cover; }
+        .gallery-thumb .empty-thumb { color:#cbd5e1;font-size:34px; }
+        .gallery-info { padding:8px 10px; }
+        .gallery-info .g-title { font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+        .gallery-info .g-meta { font-size:11px;color:var(--text-ter);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap; }
         .chat-image { max-width:200px;max-height:200px;border-radius:8px;cursor:pointer;margin-top:4px; }
         .chat-image:hover { opacity:.9; }
         .group-tag { display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500;margin-left:4px; }
@@ -563,35 +573,82 @@
         </div>
     </div>
 
+    <!-- ==================== DRAWING GALLERY MODAL ==================== -->
+    <div class="modal-overlay" id="drawingGalleryModal" style="display:none;" onclick="if(event.target===this)closeDrawingGallery()">
+        <div class="modal" style="max-width:920px;width:96vw;">
+            <div class="modal__header">
+                <i class="fas fa-paint-brush"></i> 协作绘画房间
+                <span id="galleryRoomLabel" style="font-size:12px;color:var(--text-ter);margin-left:8px;"></span>
+                <button class="btn btn--primary btn--sm" style="margin-left:auto;" onclick="showCreateCanvasForm()"><i class="fas fa-plus"></i> 新建画布</button>
+            </div>
+            <div class="modal__body" style="padding:14px;">
+                <div id="createCanvasForm" style="display:none;margin-bottom:14px;padding:12px;background:var(--bg);border-radius:8px;">
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                        <div style="flex:1;min-width:160px;">
+                            <label style="font-size:12px;color:var(--text-ter);">画布名称</label>
+                            <input type="text" id="newCanvasTitle" class="form-control" placeholder="例如：团队头脑风暴" maxlength="100">
+                        </div>
+                        <div>
+                            <label style="font-size:12px;color:var(--text-ter);">模式</label>
+                            <select id="newCanvasMode" class="form-control" onchange="onNewCanvasModeChange()">
+                                <option value="free">自由绘制</option>
+                                <option value="pixel">像素画</option>
+                            </select>
+                        </div>
+                        <div id="newCanvasPixelWrap" style="display:none;">
+                            <label style="font-size:12px;color:var(--text-ter);">像素大小</label>
+                            <select id="newCanvasPixel" class="form-control">
+                                <option value="8">8 px</option>
+                                <option value="10">10 px</option>
+                                <option value="16" selected>16 px</option>
+                                <option value="20">20 px</option>
+                                <option value="24">24 px</option>
+                                <option value="32">32 px</option>
+                            </select>
+                        </div>
+                        <button class="btn btn--primary" onclick="submitCreateCanvas()"><i class="fas fa-check"></i> 创建并进入</button>
+                    </div>
+                </div>
+                <div id="drawingGalleryGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== COLLABORATIVE DRAWING MODAL ==================== -->
     <div class="modal-overlay" id="collabCanvasModal" style="display:none;" onclick="if(event.target===this)closeCollabCanvas()">
-        <div class="modal" style="max-width:980px;width:96vw;">
+        <div class="modal" style="max-width:1000px;width:97vw;">
             <div class="modal__header">
                 <i class="fas fa-paint-brush"></i> <span id="collabCanvasTitle">协作画布</span>
                 <span id="collabModeBadge" style="font-size:11px;padding:2px 8px;border-radius:8px;background:var(--accent);color:#fff;margin-left:8px;"></span>
+                <span id="collabReqBadge" style="display:none;font-size:11px;padding:2px 8px;border-radius:8px;background:#ef4444;color:#fff;margin-left:6px;"><i class="fas fa-hand-paper"></i> <span id="collabReqCount">0</span></span>
+                <button class="btn btn--sm btn--secondary" style="margin-left:auto;" onclick="closeCollabCanvas()"><i class="fas fa-times"></i> 返回</button>
             </div>
             <div class="modal__body" style="padding:12px;">
                 <div style="display:flex;gap:16px;flex-wrap:wrap;">
                     <!-- Canvas + tools -->
                     <div style="flex:1;min-width:320px;">
-                        <div class="draw-tools" style="margin-bottom:10px;">
+                        <div class="draw-tools" style="margin-bottom:10px;gap:6px;">
                             <button class="active" data-dmode="free" onclick="setCollabMode('free')"><i class="fas fa-pen"></i> 画笔</button>
                             <button data-dmode="pixel" onclick="setCollabMode('pixel')"><i class="fas fa-th"></i> 像素画</button>
                             <button data-dmode="line" onclick="setCollabMode('line')"><i class="fas fa-slash"></i> 直线</button>
                             <button data-dmode="rect" onclick="setCollabMode('rect')"><i class="fas fa-square"></i> 矩形</button>
                             <button data-dmode="circle" onclick="setCollabMode('circle')"><i class="fas fa-circle"></i> 圆</button>
+                            <button data-dmode="triangle" onclick="setCollabMode('triangle')"><i class="fas fa-play" style="transform:rotate(90deg);"></i> 三角</button>
+                            <button data-dmode="star" onclick="setCollabMode('star')"><i class="fas fa-star"></i> 星形</button>
                             <button data-dmode="arrow" onclick="setCollabMode('arrow')"><i class="fas fa-arrow-right"></i> 箭头</button>
                             <span style="color:var(--text-ter);font-size:12px;">|</span>
+                            <label style="font-size:12px;color:var(--text-ter);"><input type="checkbox" id="collabFill" onchange="collabBrush.fill=this.checked" style="vertical-align:middle;"> 填充</label>
                             <input type="color" id="collabColor" value="#d48c5c" onchange="collabBrush.color=this.value">
-                            <span id="collabPalette" style="display:flex;gap:3px;flex-wrap:wrap;max-width:200px;"></span>
+                            <span id="collabPalette" style="display:flex;gap:3px;flex-wrap:wrap;max-width:240px;"></span>
                             <label style="font-size:12px;color:var(--text-ter);">粗细 <input type="range" id="collabSize" min="1" max="50" value="3" oninput="collabBrush.size=+this.value" style="width:60px;"></label>
+                            <span id="collabPixelWrap" style="display:none;font-size:12px;color:var(--text-ter);">像素 <input type="range" id="collabPixelSize" min="4" max="64" value="16" oninput="onCollabPixelSizeChange(+this.value)" style="width:70px;"></span>
                             <span style="color:var(--text-ter);font-size:12px;">|</span>
                             <button onclick="undoCollab()"><i class="fas fa-undo"></i> 撤销</button>
                             <button onclick="clearCollab()"><i class="fas fa-trash"></i> 清空</button>
                             <button onclick="exportCollab()"><i class="fas fa-download"></i> 导出</button>
                         </div>
                         <div id="collabControlHint" style="font-size:12px;margin-bottom:8px;padding:6px 10px;border-radius:6px;background:var(--bg);"></div>
-                        <canvas id="collabCanvas" class="draw-canvas" width="760" height="460" style="width:100%;background:#fff;"></canvas>
+                        <canvas id="collabCanvas" class="draw-canvas" width="760" height="460" style="width:100%;background:#fff;touch-action:none;"></canvas>
                     </div>
                     <!-- Sidebar: participants + control -->
                     <div style="width:240px;flex-shrink:0;display:flex;flex-direction:column;gap:12px;">
@@ -604,7 +661,7 @@
                             <div id="collabParticipants" style="font-size:12px;line-height:1.9;"></div>
                         </div>
                         <div class="card" style="padding:10px;" id="collabRequestsCard">
-                            <div class="card__title" style="font-size:13px;margin-bottom:8px;"><i class="fas fa-hand-paper"></i> 接管申请</div>
+                            <div class="card__title" style="font-size:13px;margin-bottom:8px;"><i class="fas fa-hand-paper"></i> 接管申请 (<span id="collabReqCount2">0</span>)</div>
                             <div id="collabRequests" style="font-size:12px;"></div>
                         </div>
                         <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -616,6 +673,33 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MINI DRAW POPOVER (chat/meeting) ==================== -->
+    <div id="miniDrawPopover" style="display:none;position:fixed;right:24px;bottom:24px;width:340px;z-index:2000;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.4);overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-card-hover);border-bottom:1px solid var(--border);">
+            <i class="fas fa-paint-brush" style="color:var(--accent);"></i>
+            <span style="font-size:13px;font-weight:600;">快速绘制</span>
+            <button style="margin-left:auto;background:none;border:none;color:var(--text-ter);cursor:pointer;font-size:14px;" onclick="closeMiniDraw()"><i class="fas fa-times"></i></button>
+        </div>
+        <div style="padding:10px;">
+            <div class="draw-tools" style="margin-bottom:8px;gap:4px;flex-wrap:wrap;">
+                <button class="active" data-mmode="free" onclick="setMiniMode('free')"><i class="fas fa-pen"></i></button>
+                <button data-mmode="line" onclick="setMiniMode('line')"><i class="fas fa-slash"></i></button>
+                <button data-mmode="rect" onclick="setMiniMode('rect')"><i class="fas fa-square"></i></button>
+                <button data-mmode="circle" onclick="setMiniMode('circle')"><i class="fas fa-circle"></i></button>
+                <button data-mmode="arrow" onclick="setMiniMode('arrow')"><i class="fas fa-arrow-right"></i></button>
+                <span style="color:var(--text-ter);font-size:12px;">|</span>
+                <input type="color" id="miniColor" value="#d48c5c" onchange="miniBrush.color=this.value" style="width:28px;height:24px;border:none;background:none;">
+                <button onclick="miniUndo()" title="撤销"><i class="fas fa-undo"></i></button>
+                <button onclick="miniClear()" title="清空"><i class="fas fa-trash"></i></button>
+            </div>
+            <canvas id="miniCanvas" width="320" height="200" style="width:100%;background:#fff;border:1px solid var(--border);border-radius:6px;touch-action:none;cursor:crosshair;"></canvas>
+            <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn btn--sm" style="flex:1;" onclick="miniSendAsImage()"><i class="fas fa-paper-plane"></i> 发送图片</button>
+                <button class="btn btn--sm btn--primary" style="flex:1;" onclick="miniSendAsCanvas()"><i class="fas fa-users"></i> 发起协作</button>
             </div>
         </div>
     </div>
@@ -836,8 +920,16 @@
 
     <!-- Drawing Board -->
     <template id="page-draw">
-        <div class="page-header"><h1><i class="fas fa-paint-brush"></i> 绘图板 <small>像素画 / 思维导图 / 自由绘制 / 图形</small></h1></div>
+        <div class="page-header"><h1><i class="fas fa-paint-brush"></i> 协作绘画 <small>房间预览 · 点击进入参与 · 像素画 / 思维导图 / 图形</small></h1></div>
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card__title" style="display:flex;align-items:center;gap:8px;font-size:15px;">
+                <i class="fas fa-layer-group"></i> 绘画房间
+                <button class="btn btn--primary btn--sm" style="margin-left:auto;" onclick="openDrawingGallery('public', 0)"><i class="fas fa-plus"></i> 新建 / 进入房间</button>
+            </div>
+            <div id="drawPageGallery" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px;margin-top:12px;"></div>
+        </div>
         <div class="card">
+            <div class="card__title" style="font-size:14px;margin-bottom:10px;"><i class="fas fa-pencil-alt"></i> 个人草稿板（本地，不协作）</div>
             <div class="draw-tools">
                 <button class="active" data-mode="free" onclick="setDrawMode('free')"><i class="fas fa-pen"></i> 画笔</button>
                 <button data-mode="pixel" onclick="setDrawMode('pixel')"><i class="fas fa-th"></i> 像素画</button>
@@ -1055,7 +1147,7 @@
                 case 'documents': initDocuments(); break;
                 case 'announcements': initAnnouncements(); break;
                 case 'admin': initAdmin(); break;
-                case 'draw': initDraw(); break;
+                case 'draw': initDraw(); loadDrawPageGallery(); break;
             }
         }
 
@@ -1312,11 +1404,111 @@
             const link = document.createElement('a'); link.download = 'drawing.png'; link.href = drawCanvas.toDataURL(); link.click();
         }
 
+        // ======================== DRAWING GALLERY ========================
+        let galleryRoom = { type: 'public', id: 0 };
+
+        function openDrawingGallery(roomType, roomId) {
+            galleryRoom = { type: roomType, id: roomId };
+            document.getElementById('createCanvasForm').style.display = 'none';
+            const label = document.getElementById('galleryRoomLabel');
+            label.textContent = roomType === 'meeting' ? '（会议室）' : '（公共）';
+            document.getElementById('drawingGalleryModal').style.display = 'flex';
+            loadDrawingGallery();
+        }
+        function closeDrawingGallery() {
+            document.getElementById('drawingGalleryModal').style.display = 'none';
+        }
+        async function loadDrawingGallery() {
+            const grid = document.getElementById('drawingGalleryGrid');
+            grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><i class="fas fa-spinner fa-pulse"></i> 加载中...</div>';
+            try {
+                const list = await API.get(`/api/drawings?room_type=${galleryRoom.type}&room_id=${galleryRoom.id}`);
+                if (!list || list.length === 0) {
+                    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">还没有绘画房间，点击右上角「新建画布」开始协作吧！</div>';
+                    return;
+                }
+                grid.innerHTML = list.map(c => {
+                    const modeLabel = c.mode === 'pixel' ? '像素画' : '自由绘制';
+                    const thumb = c.data ? `<img src="${c.data}" alt="">` : '<div class="empty-thumb"><i class="fas fa-image"></i></div>';
+                    return `<div class="gallery-card" onclick="enterGalleryCanvas(${c.id})">
+                        <div class="gallery-thumb">${thumb}</div>
+                        <div class="gallery-info">
+                            <div class="g-title">${escapeHtml(c.title || '协作画布')}</div>
+                            <div class="g-meta">
+                                <span><i class="fas fa-tag"></i> ${modeLabel}</span>
+                                <span><i class="fas fa-user"></i> ${escapeHtml(c.owner_name || '未知')}</span>
+                                <span><i class="fas fa-users"></i> ${c.participant_count || 0}</span>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;color:var(--danger);">加载失败</div>';
+            }
+        }
+        function enterGalleryCanvas(id) {
+            closeDrawingGallery();
+            openCollaborativeCanvas(id);
+        }
+        function showCreateCanvasForm() {
+            const f = document.getElementById('createCanvasForm');
+            f.style.display = f.style.display === 'none' ? 'block' : 'none';
+            const mode = document.getElementById('newCanvasMode');
+            document.getElementById('newCanvasPixelWrap').style.display = mode.value === 'pixel' ? 'block' : 'none';
+        }
+        function onNewCanvasModeChange() {
+            const mode = document.getElementById('newCanvasMode').value;
+            document.getElementById('newCanvasPixelWrap').style.display = mode === 'pixel' ? 'block' : 'none';
+        }
+        async function submitCreateCanvas() {
+            const title = document.getElementById('newCanvasTitle').value.trim() || '协作画布';
+            const mode = document.getElementById('newCanvasMode').value;
+            const pixel_size = parseInt(document.getElementById('newCanvasPixel').value, 10) || 16;
+            try {
+                const canvas = await API.post('/api/drawings', { room_type: galleryRoom.type, room_id: galleryRoom.id, title, mode, pixel_size });
+                if (canvas && canvas.id) {
+                    closeDrawingGallery();
+                    await openCollaborativeCanvas(canvas.id);
+                    setTimeout(() => { if (galleryRoom.type === 'meeting') pollMeetingMessages(); else pollPublicMessages(); }, 800);
+                }
+            } catch (e) { alert('创建画布失败'); }
+        }
+
+        async function loadDrawPageGallery() {
+            const grid = document.getElementById('drawPageGallery');
+            if (!grid) return;
+            grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><i class="fas fa-spinner fa-pulse"></i> 加载中...</div>';
+            try {
+                const list = await API.get('/api/drawings?room_type=public&room_id=0');
+                if (!list || list.length === 0) {
+                    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">暂无公共绘画房间，点击右上角「新建 / 进入房间」开始协作。</div>';
+                    return;
+                }
+                grid.innerHTML = list.map(c => {
+                    const modeLabel = c.mode === 'pixel' ? '像素画' : '自由绘制';
+                    const thumb = c.data ? `<img src="${c.data}" alt="">` : '<div class="empty-thumb"><i class="fas fa-image"></i></div>';
+                    return `<div class="gallery-card" onclick="openCollaborativeCanvas(${c.id})">
+                        <div class="gallery-thumb">${thumb}</div>
+                        <div class="gallery-info">
+                            <div class="g-title">${escapeHtml(c.title || '协作画布')}</div>
+                            <div class="g-meta">
+                                <span><i class="fas fa-tag"></i> ${modeLabel}</span>
+                                <span><i class="fas fa-user"></i> ${escapeHtml(c.owner_name || '未知')}</span>
+                                <span><i class="fas fa-users"></i> ${c.participant_count || 0}</span>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;color:var(--danger);">加载失败</div>';
+            }
+        }
+
         // ======================== COLLABORATIVE DRAWING ========================
         let collabCanvasObj = null;       // current canvas state from server
         let collabCanvas, collabCtx, collabDrawing = false, collabHasChanges = false;
         let collabHistory = [], collabShapeStart = null;
-        let collabBrush = { color: '#d48c5c', size: 3, mode: 'free' };
+        let collabBrush = { color: '#d48c5c', size: 3, mode: 'free', fill: false };
         let collabRoom = { type: 'public', id: 0 };
         let collabPollTimer = null, collabSaveTimer = null;
         const RICH_COLORS = ['#d48c5c','#e07a5f','#f2cc8f','#81b29a','#5c9ad4','#9b5de5','#f15bb5','#fee440','#00bbf9','#00f5d4','#ef476f','#06d6a0','#118ab2','#073b4c','#ff7b00','#3a86ff','#8338ec','#ff006e','#fb5607','#000000','#ffffff','#9a9792'];
@@ -1324,6 +1516,7 @@
         function setCollabMode(mode) {
             collabBrush.mode = mode;
             document.querySelectorAll('#collabCanvasModal .draw-tools button[data-dmode]').forEach(b => b.classList.toggle('active', b.dataset.dmode === mode));
+            document.getElementById('collabPixelWrap').style.display = (mode === 'pixel') ? 'inline-flex' : 'none';
         }
 
         function renderCollabPalette() {
@@ -1333,14 +1526,7 @@
         }
 
         async function createCollabCanvas(roomType, roomId) {
-            try {
-                const canvas = await API.post('/api/drawings', { room_type: roomType, room_id: roomId, title: '协作画布', mode: 'free' });
-                if (canvas && canvas.id) {
-                    await openCollaborativeCanvas(canvas.id);
-                    // refresh chat after a moment so the drawing message appears
-                    setTimeout(() => { if (roomType === 'meeting') pollMeetingMessages(); else pollPublicMessages(); }, 800);
-                }
-            } catch (e) { alert('创建画布失败'); }
+            openDrawingGallery(roomType, roomId);
         }
 
         async function openCollaborativeCanvas(canvasId) {
@@ -1354,6 +1540,9 @@
                 collabCtx.lineCap = 'round'; collabCtx.lineJoin = 'round';
                 document.getElementById('collabCanvasTitle').textContent = data.title || '协作画布';
                 document.getElementById('collabModeBadge').textContent = data.mode === 'pixel' ? '像素画模式' : '自由绘制模式';
+                collabBrush.pixelSize = Math.max(4, Math.min(64, parseInt(data.pixel_size, 10) || 16));
+                const ps = document.getElementById('collabPixelSize'); if (ps) ps.value = collabBrush.pixelSize;
+                setCollabMode(data.mode === 'pixel' ? 'pixel' : 'free');
                 // render existing data
                 if (data.data) {
                     const img = new Image();
@@ -1398,6 +1587,13 @@
                 : '<div style="color:var(--text-ter);">暂无成员</div>';
             // requests
             const reqs = collabCanvasObj.pending_requests || [];
+            const reqCount = reqs.length;
+            const reqBadge = document.getElementById('collabReqBadge');
+            const reqCountEl = document.getElementById('collabReqCount');
+            const reqCount2 = document.getElementById('collabReqCount2');
+            if (reqCountEl) reqCountEl.textContent = reqCount;
+            if (reqCount2) reqCount2.textContent = reqCount;
+            if (reqBadge) { reqBadge.style.display = reqCount > 0 ? 'inline-block' : 'none'; }
             const reqEl = document.getElementById('collabRequests');
             if (reqs.length === 0) {
                 reqEl.innerHTML = '<div style="color:var(--text-ter);">暂无申请</div>';
@@ -1471,7 +1667,7 @@
             if (!collabCanDraw()) { flashCollabLocked(); return; }
             const p = collabPt(e);
             if (collabBrush.mode === 'pixel') { collabPixel(p.x, p.y); collabHasChanges = true; return; }
-            if (['line','rect','circle','arrow'].includes(collabBrush.mode)) {
+            if (['line','rect','circle','arrow','triangle','star'].includes(collabBrush.mode)) {
                 collabShapeStart = p;
                 collabDrawing = true;
                 collabHistory.push(collabCanvas.toDataURL());
@@ -1487,7 +1683,7 @@
         function collabMoveDraw(e) {
             if (!collabCanDraw() || !collabDrawing) return;
             const p = collabPt(e);
-            if (['line','rect','circle','arrow'].includes(collabBrush.mode)) {
+            if (['line','rect','circle','arrow','triangle','star'].includes(collabBrush.mode)) {
                 // preview from history
                 const snap = collabHistory[collabHistory.length-1];
                 const img = new Image();
@@ -1514,8 +1710,13 @@
             scheduleCollabSave();
         }
 
+        function onCollabPixelSizeChange(v) {
+            collabBrush.pixelSize = Math.max(4, Math.min(64, v || 16));
+            if (amCollabOwner()) scheduleCollabSave();
+        }
+
         function collabPixel(x, y) {
-            const size = 16;
+            const size = collabBrush.pixelSize || 16;
             const px = Math.floor(x/size)*size, py = Math.floor(y/size)*size;
             collabCtx.fillStyle = collabBrush.color;
             collabCtx.fillRect(px, py, size, size);
@@ -1527,13 +1728,24 @@
         function drawCollabShape(a, b) {
             if (!a || !b) return;
             collabCtx.strokeStyle = collabBrush.color; collabCtx.fillStyle = collabBrush.color; collabCtx.lineWidth = collabBrush.size;
+            const fill = collabBrush.fill;
             if (collabBrush.mode === 'line') {
                 collabCtx.beginPath(); collabCtx.moveTo(a.x,a.y); collabCtx.lineTo(b.x,b.y); collabCtx.stroke();
             } else if (collabBrush.mode === 'rect') {
-                collabCtx.strokeRect(a.x, a.y, b.x-a.x, b.y-a.y);
+                const w=b.x-a.x, h=b.y-a.y;
+                if (fill) collabCtx.fillRect(Math.min(a.x,b.x), Math.min(a.y,b.y), Math.abs(w), Math.abs(h));
+                else collabCtx.strokeRect(a.x, a.y, w, h);
             } else if (collabBrush.mode === 'circle') {
                 const rx=Math.abs(b.x-a.x)/2, ry=Math.abs(b.y-a.y)/2, cx=a.x+(b.x-a.x)/2, cy=a.y+(b.y-a.y)/2;
-                collabCtx.beginPath(); collabCtx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); collabCtx.stroke();
+                collabCtx.beginPath(); collabCtx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2);
+                if (fill) collabCtx.fill(); else collabCtx.stroke();
+            } else if (collabBrush.mode === 'triangle') {
+                collabCtx.beginPath();
+                collabCtx.moveTo(a.x, b.y); collabCtx.lineTo(b.x, b.y); collabCtx.lineTo((a.x+b.x)/2, a.y); collabCtx.closePath();
+                if (fill) collabCtx.fill(); else collabCtx.stroke();
+            } else if (collabBrush.mode === 'star') {
+                drawStar(collabCtx, (a.x+b.x)/2, (a.y+b.y)/2, 5, Math.max(Math.abs(b.x-a.x),Math.abs(b.y-a.y))/2, Math.max(Math.abs(b.x-a.x),Math.abs(b.y-a.y))/4);
+                if (fill) collabCtx.fill(); else collabCtx.stroke();
             } else if (collabBrush.mode === 'arrow') {
                 collabCtx.beginPath(); collabCtx.moveTo(a.x,a.y); collabCtx.lineTo(b.x,b.y); collabCtx.stroke();
                 const ang=Math.atan2(b.y-a.y,b.x-a.x), h=12;
@@ -1543,6 +1755,16 @@
                 collabCtx.lineTo(b.x-h*Math.cos(ang+Math.PI/6), b.y-h*Math.sin(ang+Math.PI/6));
                 collabCtx.stroke();
             }
+        }
+
+        function drawStar(ctx, cx, cy, spikes, outer, inner) {
+            let rot = -Math.PI/2; const step = Math.PI/spikes;
+            ctx.beginPath(); ctx.moveTo(cx + Math.cos(rot)*outer, cy + Math.sin(rot)*outer);
+            for (let i=0; i<spikes; i++) {
+                rot += step; ctx.lineTo(cx + Math.cos(rot)*inner, cy + Math.sin(rot)*inner);
+                rot += step; ctx.lineTo(cx + Math.cos(rot)*outer, cy + Math.sin(rot)*outer);
+            }
+            ctx.closePath();
         }
 
         function flashCollabLocked() {
@@ -1615,6 +1837,99 @@
         }
         function stopCollabPolling() {
             if (collabPollTimer) { clearInterval(collabPollTimer); collabPollTimer = null; }
+        }
+
+        // ======================== MINI DRAW POPOVER (chat/meeting) ========================
+        let miniCanvas, miniCtx, miniDrawing = false, miniHistory = [], miniShapeStart = null;
+        let miniBrush = { color: '#d48c5c', size: 3, mode: 'free' };
+        let miniDrawContext = { type: 'public', id: 0 };
+
+        function openMiniDraw(roomType, roomId) {
+            miniDrawContext = { type: roomType, id: roomId };
+            const pop = document.getElementById('miniDrawPopover');
+            pop.style.display = 'block';
+            miniCanvas = document.getElementById('miniCanvas');
+            if (!miniCtx) {
+                miniCtx = miniCanvas.getContext('2d');
+                miniCtx.lineCap = 'round'; miniCtx.lineJoin = 'round';
+                bindMiniCanvasEvents();
+            }
+        }
+        function closeMiniDraw() {
+            document.getElementById('miniDrawPopover').style.display = 'none';
+        }
+        function setMiniMode(mode) {
+            miniBrush.mode = mode;
+            document.querySelectorAll('#miniDrawPopover .draw-tools button[data-mmode]').forEach(b => b.classList.toggle('active', b.dataset.mmode === mode));
+        }
+        function bindMiniCanvasEvents() {
+            if (miniCanvas._bound) return; miniCanvas._bound = true;
+            miniCanvas.addEventListener('mousedown', miniStart);
+            miniCanvas.addEventListener('mousemove', miniMove);
+            miniCanvas.addEventListener('mouseup', miniEnd);
+            miniCanvas.addEventListener('mouseleave', miniEnd);
+            miniCanvas.addEventListener('touchstart', function(e){ e.preventDefault(); const t=e.touches[0]; miniStart({offsetX:t.clientX-miniCanvas.getBoundingClientRect().left, offsetY:t.clientY-miniCanvas.getBoundingClientRect().top}); });
+            miniCanvas.addEventListener('touchmove', function(e){ e.preventDefault(); const t=e.touches[0]; miniMove({offsetX:t.clientX-miniCanvas.getBoundingClientRect().left, offsetY:t.clientY-miniCanvas.getBoundingClientRect().top}); });
+            miniCanvas.addEventListener('touchend', miniEnd);
+        }
+        function miniPt(e) {
+            const rect = miniCanvas.getBoundingClientRect();
+            return { x: (e.offsetX||0)*(miniCanvas.width/rect.width), y: (e.offsetY||0)*(miniCanvas.height/rect.height) };
+        }
+        function miniStart(e) {
+            const p = miniPt(e);
+            if (['line','rect','circle','arrow'].includes(miniBrush.mode)) { miniShapeStart = p; miniDrawing = true; miniHistory.push(miniCanvas.toDataURL()); return; }
+            miniDrawing = true; miniHistory.push(miniCanvas.toDataURL());
+            miniCtx.beginPath(); miniCtx.moveTo(p.x, p.y);
+        }
+        function miniMove(e) {
+            if (!miniDrawing) return;
+            const p = miniPt(e);
+            if (['line','rect','circle','arrow'].includes(miniBrush.mode)) {
+                const img = new Image(); const snap = miniHistory[miniHistory.length-1];
+                img.onload = () => { miniCtx.clearRect(0,0,miniCanvas.width,miniCanvas.height); miniCtx.drawImage(img,0,0); miniDrawShape(miniShapeStart, p); };
+                img.src = snap; return;
+            }
+            miniCtx.strokeStyle = miniBrush.color; miniCtx.lineWidth = miniBrush.size; miniCtx.lineTo(p.x, p.y); miniCtx.stroke();
+        }
+        function miniEnd() {
+            if (miniDrawing) { miniDrawing = false; if (miniHistory.length > 30) miniHistory.shift(); }
+            miniShapeStart = null;
+        }
+        function miniDrawShape(a, b) {
+            if (!a || !b) return;
+            miniCtx.strokeStyle = miniBrush.color; miniCtx.fillStyle = miniBrush.color; miniCtx.lineWidth = miniBrush.size;
+            if (miniBrush.mode === 'line') { miniCtx.beginPath(); miniCtx.moveTo(a.x,a.y); miniCtx.lineTo(b.x,b.y); miniCtx.stroke(); }
+            else if (miniBrush.mode === 'rect') { miniCtx.strokeRect(a.x, a.y, b.x-a.x, b.y-a.y); }
+            else if (miniBrush.mode === 'circle') { const rx=Math.abs(b.x-a.x)/2, ry=Math.abs(b.y-a.y)/2, cx=a.x+(b.x-a.x)/2, cy=a.y+(b.y-a.y)/2; miniCtx.beginPath(); miniCtx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); miniCtx.stroke(); }
+            else if (miniBrush.mode === 'arrow') { miniCtx.beginPath(); miniCtx.moveTo(a.x,a.y); miniCtx.lineTo(b.x,b.y); miniCtx.stroke(); const ang=Math.atan2(b.y-a.y,b.x-a.x), h=10; miniCtx.beginPath(); miniCtx.moveTo(b.x,b.y); miniCtx.lineTo(b.x-h*Math.cos(ang-Math.PI/6), b.y-h*Math.sin(ang-Math.PI/6)); miniCtx.moveTo(b.x,b.y); miniCtx.lineTo(b.x-h*Math.cos(ang+Math.PI/6), b.y-h*Math.sin(ang+Math.PI/6)); miniCtx.stroke(); }
+        }
+        function miniUndo() { if (miniHistory.length < 2) return; miniHistory.pop(); const img = new Image(); img.onload = () => { miniCtx.clearRect(0,0,miniCanvas.width,miniCanvas.height); miniCtx.drawImage(img,0,0); }; img.src = miniHistory[miniHistory.length-1]; }
+        function miniClear() { miniHistory.push(miniCanvas.toDataURL()); miniCtx.clearRect(0,0,miniCanvas.width,miniCanvas.height); }
+        async function miniSendAsImage() {
+            const dataUrl = miniCanvas.toDataURL('image/png');
+            try {
+                if (miniDrawContext.type === 'meeting') {
+                    await API.post(`/api/meetings/${miniDrawContext.id}/chat`, { content: dataUrl, message_type: 'image' });
+                    pollMeetingMessages();
+                } else {
+                    await API.post('/api/chat', { content: dataUrl, message_type: 'image' });
+                    pollPublicMessages();
+                }
+                miniClear();
+                closeMiniDraw();
+            } catch (e) { alert('发送失败'); }
+        }
+        async function miniSendAsCanvas() {
+            const dataUrl = miniCanvas.toDataURL('image/png');
+            try {
+                const canvas = await API.post('/api/drawings', { room_type: miniDrawContext.type, room_id: miniDrawContext.id, title: '协作画布', mode: 'free' });
+                if (canvas && canvas.id) {
+                    await API.put('/api/drawings/' + canvas.id, { data: dataUrl });
+                    closeMiniDraw();
+                    openDrawingGallery(miniDrawContext.type, miniDrawContext.id);
+                }
+            } catch (e) { alert('发起协作失败'); }
         }
 
         // ======================== DASHBOARD ========================
@@ -2048,7 +2363,7 @@
             const ap = document.getElementById('authPanel');
             if (ap) ap.style.display = 'block';
             loadTokens('tokenList');
-            document.getElementById('chatDrawBtn')?.addEventListener('click', function() { createCollabCanvas('meeting', meetingChatState.meetingId); });
+            document.getElementById('chatDrawBtn')?.addEventListener('click', function() { openMiniDraw('meeting', meetingChatState.meetingId); });
         }
 
         function leaveMeetingChat() {
@@ -2161,7 +2476,7 @@
         // ======================== PUBLIC CHAT ========================
         function initPublicChat() {
             document.getElementById('pubChatSendBtn')?.addEventListener('click', sendPublicMessage);
-            document.getElementById('pubChatDrawBtn')?.addEventListener('click', function() { createCollabCanvas('public', 0); });
+            document.getElementById('pubChatDrawBtn')?.addEventListener('click', function() { openMiniDraw('public', 0); });
             document.getElementById('pubChatTodoBtn')?.addEventListener('click', function() {
                 const input = document.getElementById('pubChatInput');
                 const text = input.value.trim();

@@ -107,9 +107,10 @@ function renderMessageContent(m) {
         const cid = meta.canvas_id;
         const title = meta.title || '协作画布';
         const modeLabel = meta.mode === 'pixel' ? '像素画' : '自由绘制';
+        const thumb = m.content ? `<img src="${escapeHtml(m.content)}" style="width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;" alt="">` : '<div style="width:54px;height:54px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fas fa-image" style="color:var(--text-ter);"></i></div>';
         return `<div class="drawing-msg-card" onclick="openCollaborativeCanvas(${cid})" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(212,140,92,0.1);border:1px solid var(--accent);border-radius:8px;margin:2px 0;">
-            <i class="fas fa-paint-brush" style="color:var(--accent);font-size:20px;"></i>
-            <div style="flex:1;">
+            ${thumb}
+            <div style="flex:1;min-width:0;">
                 <div style="font-weight:600;font-size:14px;">🎨 ${escapeHtml(title)}</div>
                 <div style="font-size:11px;color:var(--text-ter);">协作画布 · ${modeLabel} · 点击进入</div>
             </div>

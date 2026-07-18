@@ -85,11 +85,13 @@ async function ensureSchema(env) {
     title TEXT NOT NULL DEFAULT '协作画布',
     data TEXT NOT NULL DEFAULT '',
     mode TEXT NOT NULL DEFAULT 'free',
+    pixel_size INTEGER NOT NULL DEFAULT 16,
     owner_id INTEGER NOT NULL DEFAULT 0,
     created_by INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
   )`);
+  await run("ALTER TABLE drawing_canvases ADD COLUMN pixel_size INTEGER");
   await run(`CREATE TABLE IF NOT EXISTS drawing_participants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     canvas_id INTEGER NOT NULL,
@@ -897,8 +899,14 @@ get('/api/drawings', async (request, env) => {
     const room_type = url.searchParams.get('room_type') || 'public';
     const room_id = parseInt(url.searchParams.get('room_id') || '0', 10);
     const { results } = await env.DB.prepare(
-      "SELECT dc.id,dc.room_type,dc.room_id,dc.title,dc.mode,dc.owner_id,dc.created_by,dc.updated_at,u.username as owner_name FROM drawing_canvases dc LEFT JOIN users u ON dc.owner_id=u.id WHERE dc.room_type=? AND dc.room_id=? ORDER BY dc.updated_at DESC"
+      "SELECT dc.id,dc.room_type,dc.room_id,dc.title,dc.mode,dc.pixel_size,dc.owner_id,dc.created_by,dc.updated_at,dc.data,u.username as owner_name FROM drawing_canvases dc LEFT JOIN users u ON dc.owner_id=u.id WHERE dc.room_type=? AND dc.room_id=? ORDER BY dc.updated_at DESC"
     ).bind(room_type, room_id).all();
+    // attach participant counts
+    for (const c of results) {
+      const pc = await env.DB.prepare("SELECT COUNT(*) as cnt FROM drawing_participants WHERE canvas_id=?").bind(c.id).all();
+      c.participant_count = pc.results[0].cnt;
+      c.data = c.data || '';
+    }
     return jsonResponse(results);
   } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
 });
@@ -919,18 +927,19 @@ get('/api/drawings/:id', async (request, env) => {
 post('/api/drawings', async (request, env) => {
   try {
     const user = await requireAuth(request, env);
-    const { room_type, room_id, title, mode } = await request.json();
+    const { room_type, room_id, title, mode, pixel_size } = await request.json();
     const rt = room_type || 'public';
     const rid = parseInt(room_id || '0', 10);
     const t = (title || '协作画布').toString().substring(0, 100);
     const md = (mode === 'pixel') ? 'pixel' : 'free';
+    const px = Math.max(4, Math.min(64, parseInt(pixel_size || '16', 10) || 16));
     const { results } = await env.DB.prepare(
-      "INSERT INTO drawing_canvases (room_type,room_id,title,mode,owner_id,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,room_type,room_id,title,mode,owner_id,created_by"
-    ).bind(rt, rid, t, md, user.id, user.id).all();
+      "INSERT INTO drawing_canvases (room_type,room_id,title,mode,pixel_size,owner_id,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,room_type,room_id,title,mode,pixel_size,owner_id,created_by"
+    ).bind(rt, rid, t, md, px, user.id, user.id).all();
     const canvas = results[0];
     await env.DB.prepare("INSERT OR IGNORE INTO drawing_participants (canvas_id,user_id) VALUES (?,?)").bind(canvas.id, user.id).run();
     // post a chat message linking to the canvas
-    const meta = JSON.stringify({ canvas_id: canvas.id, title: canvas.title, mode: canvas.mode });
+    const meta = JSON.stringify({ canvas_id: canvas.id, title: canvas.title, mode: canvas.mode, pixel_size: canvas.pixel_size });
     if (rt === 'meeting' && rid > 0) {
       await env.DB.prepare("INSERT INTO meeting_messages (meeting_id,user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,?,datetime('now','localtime'))").bind(rid, user.id, '创建了协作画布', 'drawing', meta).run();
     } else {
@@ -944,12 +953,16 @@ put('/api/drawings/:id', async (request, env) => {
   try {
     const user = await requireAuth(request, env);
     const { id } = request.params;
-    const { data } = await request.json();
+    const body = await request.json();
     const c = await env.DB.prepare("SELECT owner_id FROM drawing_canvases WHERE id=?").bind(id).all();
     if (c.results.length === 0) return errorResponse('Canvas not found', 404);
     if (c.results[0].owner_id !== user.id) return errorResponse('只有当前操控人可以绘制', 403);
-    const d = (data || '').toString().substring(0, 3000000);
-    await env.DB.prepare("UPDATE drawing_canvases SET data=?,updated_at=datetime('now','localtime') WHERE id=?").bind(d, id).run();
+    const d = (body.data || '').toString().substring(0, 3000000);
+    const sets = ['data=?', "updated_at=datetime('now','localtime')"];
+    const binds = [d];
+    if (body.pixel_size !== undefined) { sets.push('pixel_size=?'); binds.push(Math.max(4, Math.min(64, parseInt(body.pixel_size, 10) || 16))); }
+    binds.push(id);
+    await env.DB.prepare("UPDATE drawing_canvases SET " + sets.join(',') + " WHERE id=?").bind(...binds).run();
     return jsonResponse({ success: true });
   } catch (e) { if (e.status) return errorResponse(e.message, e.status); return errorResponse(e.message || 'Internal error', 500); }
 });
