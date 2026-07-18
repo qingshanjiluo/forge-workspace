@@ -1,0 +1,24 @@
+name = "forge-workspace"
+main = "src/index.js"
+compatibility_date = "2024-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "forge-workspace-db"
+database_id = ""
+
+[env.production]
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "forge-workspace-db"
+database_id = ""
+
+[env.preview]
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "forge-workspace-db-preview"
+database_id = ""
+
+[pages]
+pages_build_output_dir = "static"

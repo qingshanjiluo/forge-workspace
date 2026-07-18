@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>注册 - Forge Workspace</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'PingFang SC', sans-serif; background: #0b0a0c; color: #f0ede8; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background-image: radial-gradient(ellipse at 20% 30%, rgba(212,140,92,0.04) 0%, transparent 60%), radial-gradient(ellipse at 80% 70%, rgba(100,80,200,0.03) 0%, transparent 50%); }
+        ::selection { background: #d48c5c; color: #0b0a0c; }
+        .auth-box { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 12px 48px rgba(0,0,0,0.5); }
+        .auth-box .brand { text-align: center; margin-bottom: 24px; }
+        .auth-box .brand i { font-size: 40px; color: #d48c5c; }
+        .auth-box .brand h1 { font-size: 22px; background: linear-gradient(135deg, #d48c5c, #c0846a); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .auth-box .sub { color: #9a9792; margin-bottom: 24px; font-size: 14px; text-align: center; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: #9a9792; margin-bottom: 4px; }
+        .form-control { width: 100%; padding: 10px 14px; background: #0b0a0c; border: 1px solid rgba(255,255,255,0.07); border-radius: 6px; color: #f0ede8; font-size: 14px; font-family: inherit; outline: none; transition: border-color 0.25s; }
+        .form-control:focus { border-color: #d48c5c; box-shadow: 0 0 0 3px rgba(212,140,92,0.15); }
+        .form-control::placeholder { color: #5e5b56; }
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border-radius: 9999px; background: #d48c5c; color: #0b0a0c; border: none; font-weight: 600; cursor: pointer; width: 100%; font-size: 14px; font-family: inherit; transition: all 0.25s; }
+        .btn:hover { background: #e09e5a; box-shadow: 0 4px 24px rgba(212,140,92,0.25); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn:active { transform: scale(0.96); }
+        .footer-link { text-align: center; margin-top: 16px; font-size: 14px; color: #9a9792; }
+        .footer-link a { color: #d48c5c; text-decoration: none; }
+        .footer-link a:hover { text-decoration: underline; }
+        .alert { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+        .alert--danger { background: rgba(231,76,111,0.15); border: 1px solid #e74c6f; color: #e74c6f; }
+        .alert--success { background: rgba(78,205,196,0.15); border: 1px solid #4ecdc4; color: #4ecdc4; }
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(0,0,0,0.1); border-top-color: #0b0a0c; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .pass-strength { height: 3px; border-radius: 2px; margin-top: 6px; transition: all 0.2s; }
+    </style>
+</head>
+<body>
+    <div class="auth-box">
+        <div class="brand">
+            <i class="fas fa-cube"></i>
+            <h1>Forge Workspace</h1>
+        </div>
+        <div class="sub">加入工作交流平台</div>
+        <div id="errorMsg"></div>
+        <form id="registerForm">
+            <div class="form-group">
+                <label><i class="fas fa-user"></i> 用户名</label>
+                <input type="text" id="username" class="form-control" placeholder="至少3个字符，用于登录" required minlength="3" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-id-card"></i> 显示名称 <span class="text-ter" style="font-weight:400;">(可选)</span></label>
+                <input type="text" id="displayName" class="form-control" placeholder="显示在团队中的名称">
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-lock"></i> 密码</label>
+                <input type="password" id="password" class="form-control" placeholder="至少4个字符" required minlength="4" autocomplete="new-password">
+                <div class="pass-strength" id="passStrength"></div>
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-check-circle"></i> 确认密码</label>
+                <input type="password" id="confirmPassword" class="form-control" placeholder="再次输入密码" required autocomplete="new-password">
+            </div>
+            <button type="submit" class="btn" id="registerBtn"><i class="fas fa-pen-to-square"></i> 注册</button>
+        </form>
+        <div class="footer-link">已有账号？ <a href="/login.html">去登录</a></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('registerForm');
+        const btn = document.getElementById('registerBtn');
+        const errorMsg = document.getElementById('errorMsg');
+        const password = document.getElementById('password');
+        const confirmPwd = document.getElementById('confirmPassword');
+        const passStrength = document.getElementById('passStrength');
+
+        password.addEventListener('input', function() {
+            const len = this.value.length;
+            if (len === 0) { passStrength.style.width = '0'; passStrength.style.background = 'transparent'; return; }
+            passStrength.style.width = '100%';
+            if (len < 4) { passStrength.style.background = '#e74c6f'; }
+            else if (len < 8) { passStrength.style.background = '#f9ca24'; }
+            else { passStrength.style.background = '#4ecdc4'; }
+        });
+
+        confirmPwd.addEventListener('input', function() {
+            if (this.value && this.value !== password.value) {
+                this.setCustomValidity('密码不一致');
+            } else {
+                this.setCustomValidity('');
+            }
+        });
+
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            errorMsg.innerHTML = '';
+
+            const username = document.getElementById('username').value.trim();
+            const displayName = document.getElementById('displayName').value.trim();
+            const pwd = password.value;
+            const confirm = confirmPwd.value;
+
+            if (username.length < 3) { showError('用户名至少3个字符'); return; }
+            if (pwd.length < 4) { showError('密码至少4个字符'); return; }
+            if (pwd !== confirm) { showError('两次密码不一致'); return; }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> 注册中...';
+
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password: pwd, display_name: displayName || undefined })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    errorMsg.innerHTML = '<div class="alert alert--success"><i class="fas fa-check-circle"></i> 注册成功！正在跳转到登录页...</div>';
+                    setTimeout(() => { window.location.href = '/login.html'; }, 1000);
+                } else {
+                    showError(data.error || '注册失败');
+                }
+            } catch (err) {
+                showError('网络错误，请检查连接后重试');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-pen-to-square"></i> 注册';
+            }
+        });
+
+        function showError(msg) {
+            errorMsg.innerHTML = '<div class="alert alert--danger"><i class="fas fa-exclamation-circle"></i> ' + msg + '</div>';
+        }
+    </script>
+</body>
+</html>
