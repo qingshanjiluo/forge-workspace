@@ -1,4 +1,4 @@
-const API_BASE = 'https://forge-workspace.sifangzhiji.workers.dev';
+const API_BASE = '';
 
 function getToken() { return localStorage.getItem('forge_token'); }
 

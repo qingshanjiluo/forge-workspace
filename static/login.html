@@ -73,7 +73,7 @@
             errorMsg.innerHTML = '';
 
             try {
-                const res = await fetch('https://forge-workspace.sifangzhiji.workers.dev/api/auth/login', {
+                const res = await fetch('/api/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, password })
@@ -83,7 +83,7 @@
                     localStorage.setItem('forge_token', data.token);
                     window.location.href = '/';
                 } else {
-                    document.getElementById('loginError').textContent = data.error || '登录失败';
+                    showError(data.error || '登录失败');
                 }
             } catch (err) {
                 showError('网络错误，请检查连接后重试');

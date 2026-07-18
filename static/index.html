@@ -902,7 +902,7 @@
 
         // ======================== LOGOUT ========================
         async function logout() {
-            await fetch('https://forge-workspace.sifangzhiji.workers.dev/api/auth/logout', {
+            await fetch('/api/auth/logout', {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('forge_token') || '') }
             });
@@ -1721,7 +1721,7 @@
             if (!currentDocId) return;
             const data = await API.post(`/api/documents/${currentDocId}/share`, {});
             if (data && data.share_token) {
-                const shareUrl = 'https://forge-workspace.sifangzhiji.workers.dev/api/documents/share/' + data.share_token;
+                const shareUrl = '/api/documents/share/' + data.share_token;
                 prompt('分享链接（点击复制）：', shareUrl);
             }
         }

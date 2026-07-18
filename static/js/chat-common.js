@@ -84,7 +84,7 @@ async function checkLinkPreview(msg, containerSelector, size) {
     previewCache[msg.id] = true;
 
     try {
-        const res = await fetch(`https://forge-workspace.sifangzhiji.workers.dev/api/link-preview?url=${encodeURIComponent(urls[0])}`);
+        const res = await fetch(`/api/link-preview?url=${encodeURIComponent(urls[0])}`);
         const data = await res.json();
         if (data.title) {
             const el = document.querySelector(containerSelector.replace('{id}', msg.id));

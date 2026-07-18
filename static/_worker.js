@@ -5,8 +5,9 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-function errorResponse(message, status = 400) {
-  return new Response(JSON.stringify({ error: message }), {
+function errorResponse(message, status = 400, detail) {
+  const body = detail ? { error: message, detail: String(detail) } : { error: message };
+  return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-credentials': 'true' },
   });
@@ -33,7 +34,7 @@ async function getSessionUser(request, env) {
   }
   if (!token) return null;
   const { results } = await env.DB.prepare(
-    `SELECT u.id, u.username, u.role, u.display_name, u.email, u.avatar_url
+    `SELECT u.id, u.username, u.role, u.display_name
      FROM sessions s JOIN users u ON s.user_id = u.id
      WHERE s.token = ? AND (s.expires_at IS NULL OR s.expires_at > datetime('now','localtime'))`
   ).bind(token).all();
@@ -107,6 +108,19 @@ async function handleRequest(request, env) {
   }
   return errorResponse('Not Found', 404);
 }
+
+// ===================== DEBUG =====================
+get('/api/debug', async (request, env) => {
+  try {
+    const dbInfo = env.DB ? 'exists' : 'missing';
+    let tableCheck = 'not tested';
+    try {
+      const r = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all();
+      tableCheck = JSON.stringify(r.results.map(t => t.name));
+    } catch (e) { tableCheck = 'error: ' + e.message; }
+    return jsonResponse({ db: dbInfo, tables: tableCheck, env: Object.keys(env).join(',') });
+  } catch (e) { return errorResponse(e.message, 500, e.stack); }
+});
 
 // ===================== STATUS =====================
 get('/api/status', () => {
@@ -190,7 +204,7 @@ get('/api/todos/count', async (request, env) => {
   try { const user = await requireAuth(request, env);
     const { results } = await env.DB.prepare("SELECT COUNT(*) as total, COALESCE(AVG(progress),0) as avg_progress FROM todos WHERE user_id=?").bind(user.id).all();
     return jsonResponse(results[0]);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/todos', async (request, env) => {
@@ -202,14 +216,14 @@ get('/api/todos', async (request, env) => {
     const order = url.searchParams.get('order') || 'desc';
     const allowedSort = ['created_at','priority','due_date'].includes(sort)?sort:'created_at';
     const allowedOrder = order==='asc'?'ASC':'DESC';
-    let q = 'SELECT id,title,priority,progress,status,due_date,created_at,updated_at FROM todos WHERE user_id=?';
+    let q = 'SELECT id,title,priority,progress,due_date,created_at,updated_at FROM todos WHERE user_id=?';
     const p=[user.id];
-    if (filter==='active') q+=" AND status='active'";
-    else if (filter==='done') q+=" AND status='done'";
+    if (filter==='active') q+=" AND progress<100";
+    else if (filter==='done') q+=" AND progress=100";
     q+=` ORDER BY ${allowedSort} ${allowedOrder}`;
     const {results}=await env.DB.prepare(q).bind(...p).all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/todos', async (request, env) => {
@@ -220,7 +234,7 @@ post('/api/todos', async (request, env) => {
     const ap=['low','medium','high','urgent'].includes(p)?p:'medium';
     const {results}=await env.DB.prepare("INSERT INTO todos (user_id,title,priority,due_date,status,progress,created_at,updated_at) VALUES (?,?,?,?,'active',0,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,priority,progress,status,due_date,created_at").bind(user.id,st,ap,due_date||null).all();
     return jsonResponse(results[0],201);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 put('/api/todos/:id', async (request, env) => {
@@ -238,7 +252,7 @@ put('/api/todos/:id', async (request, env) => {
     await env.DB.prepare("UPDATE todos SET title=?,priority=?,progress=?,due_date=?,status=?,updated_at=datetime('now','localtime') WHERE id=? AND user_id=?").bind(nt,np,npr,nd,ns,id,user.id).run();
     const {results}=await env.DB.prepare('SELECT * FROM todos WHERE id=?').bind(id).all();
     return jsonResponse(results[0]);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 del('/api/todos/:id', async (request, env) => {
@@ -248,7 +262,7 @@ del('/api/todos/:id', async (request, env) => {
     await env.DB.prepare('DELETE FROM todo_updates WHERE todo_id=?').bind(id).run();
     await env.DB.prepare('DELETE FROM todos WHERE id=? AND user_id=?').bind(id,user.id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/todos/:id/updates', async (request, env) => {
@@ -257,7 +271,7 @@ get('/api/todos/:id/updates', async (request, env) => {
     if (existing.results.length===0) return errorResponse('Not found',404);
     const {results}=await env.DB.prepare('SELECT id,content,created_at FROM todo_updates WHERE todo_id=? ORDER BY created_at DESC').bind(id).all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/todos/:id/updates', async (request, env) => {
@@ -267,41 +281,41 @@ post('/api/todos/:id/updates', async (request, env) => {
     if (existing.results.length===0) return errorResponse('Not found',404);
     const {results}=await env.DB.prepare("INSERT INTO todo_updates (todo_id,user_id,content,created_at) VALUES (?,?,?,datetime('now','localtime')) RETURNING id,content,created_at").bind(id,user.id,content.trim().substring(0,2000)).all();
     return jsonResponse(results[0],201);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 // ===================== MEETINGS =====================
 get('/api/meetings', async (request, env) => {
   try { const user=await requireAuth(request,env);
-    const {results}=await env.DB.prepare("SELECT m.id,m.title,m.description,m.meeting_time,m.is_finished,m.participants,m.created_by,m.created_at,u.username as creator_name FROM meetings m JOIN users u ON m.created_by=u.id ORDER BY m.meeting_time DESC,m.created_at DESC").all();
+    const {results}=await env.DB.prepare("SELECT m.id,m.title,m.description,m.meeting_time,m.status,m.participants,m.user_id,m.created_at,u.username as creator_name FROM meetings m JOIN users u ON m.user_id=u.id ORDER BY m.meeting_time DESC,m.created_at DESC").all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/meetings', async (request, env) => {
   try { const user=await requireAuth(request,env); const {title,description,participants,meeting_time}=await request.json();
     if (!title||title.trim().length===0) return errorResponse('Title required',400);
     const pj=participants?JSON.stringify(participants):'[]';
-    const {results}=await env.DB.prepare("INSERT INTO meetings (title,description,participants,meeting_time,created_by,created_at) VALUES (?,?,?,?,?,datetime('now','localtime')) RETURNING id,title,description,participants,meeting_time,created_by,created_at").bind(title.trim().substring(0,300),description||null,pj,meeting_time||null,user.id).all();
+    const {results}=await env.DB.prepare("INSERT INTO meetings (title,description,participants,meeting_time,user_id,created_at) VALUES (?,?,?,?,?,datetime('now','localtime')) RETURNING id,title,description,participants,meeting_time,user_id,created_at").bind(title.trim().substring(0,300),description||null,pj,meeting_time||null,user.id).all();
     return jsonResponse(results[0],201);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 put('/api/meetings/:id', async (request, env) => {
-  try { const user=await requireAuth(request,env); const {id}=request.params; const {title,description,participants,meeting_time,is_finished}=await request.json();
+  try { const user=await requireAuth(request,env); const {id}=request.params; const {title,description,participants,meeting_time,status}=await request.json();
     const existing=await env.DB.prepare('SELECT * FROM meetings WHERE id=?').bind(id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
     const m=existing.results[0];
-    if (m.created_by!==user.id&&user.role!=='admin') return errorResponse('Forbidden',403);
+    if (m.user_id!==user.id&&user.role!=='admin') return errorResponse('Forbidden',403);
     const nt=title!==undefined?title.trim().substring(0,300):m.title;
     const nd=description!==undefined?description:m.description;
     const np=participants!==undefined?JSON.stringify(participants):m.participants;
     const ntime=meeting_time!==undefined?meeting_time:m.meeting_time;
-    const nf=is_finished!==undefined?(is_finished?1:0):m.is_finished;
-    await env.DB.prepare("UPDATE meetings SET title=?,description=?,participants=?,meeting_time=?,is_finished=? WHERE id=?").bind(nt,nd,np,ntime,nf,id).run();
+    const ns=status!==undefined?status:m.status;
+    await env.DB.prepare("UPDATE meetings SET title=?,description=?,participants=?,meeting_time=?,status=? WHERE id=?").bind(nt,nd,np,ntime,ns,id).run();
     const {results}=await env.DB.prepare('SELECT * FROM meetings WHERE id=?').bind(id).all();
     return jsonResponse(results[0]);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 del('/api/meetings/:id', async (request, env) => {
@@ -309,25 +323,25 @@ del('/api/meetings/:id', async (request, env) => {
     const existing=await env.DB.prepare('SELECT * FROM meetings WHERE id=?').bind(id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
     const m=existing.results[0];
-    if (m.created_by!==user.id&&user.role!=='admin') return errorResponse('Forbidden',403);
-    await env.DB.prepare('DELETE FROM meeting_chat WHERE meeting_id=?').bind(id).run();
+    if (m.user_id!==user.id&&user.role!=='admin') return errorResponse('Forbidden',403);
+    await env.DB.prepare('DELETE FROM meeting_messages WHERE meeting_id=?').bind(id).run();
     await env.DB.prepare('DELETE FROM meeting_presence WHERE meeting_id=?').bind(id).run();
     await env.DB.prepare('DELETE FROM meetings WHERE id=?').bind(id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/meetings/:id/chat', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params;
     const {before_id,limit}=extractPagination(request.url);
     await env.DB.prepare('SELECT id FROM meetings WHERE id=?').bind(id).all();
-    let q="SELECT mc.id,mc.content,mc.message_type,mc.meta_data,mc.created_at,u.id as user_id,u.username,u.display_name,u.avatar_url FROM meeting_chat mc JOIN users u ON mc.user_id=u.id WHERE mc.meeting_id=?";
+    let q="SELECT mc.id,mc.content,mc.message_type,mc.meta_data,mc.created_at,u.id as user_id,u.username,u.display_name FROM meeting_messages mc JOIN users u ON mc.user_id=u.id WHERE mc.meeting_id=?";
     const p=[id];
     if (before_id) { q+=' AND mc.id<?'; p.push(before_id); }
     q+=' ORDER BY mc.id DESC LIMIT ?'; p.push(limit);
     const {results}=await env.DB.prepare(q).bind(...p).all();
     return jsonResponse(results.reverse());
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/meetings/:id/chat', async (request, env) => {
@@ -337,7 +351,7 @@ post('/api/meetings/:id/chat', async (request, env) => {
     await env.DB.prepare('SELECT id FROM meetings WHERE id=?').bind(id).all();
     content=content.trim().substring(0,5000);
     const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):null;
-    const {results}=await env.DB.prepare("INSERT INTO meeting_chat (meeting_id,user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(id,user.id,content,mt,md).all();
+    const {results}=await env.DB.prepare("INSERT INTO meeting_messages (meeting_id,user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(id,user.id,content,mt,md).all();
     let todoCreated=null;
     if (mt==='todo'||content.startsWith('/todo ')) {
       const tt=content.replace('/todo ','').trim();
@@ -347,34 +361,34 @@ post('/api/meetings/:id/chat', async (request, env) => {
       }
     }
     return jsonResponse({message:results[0],todo:todoCreated},201);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/meetings/:id/presence', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params;
-    const {results}=await env.DB.prepare("SELECT mp.user_id,u.username,u.display_name,u.avatar_url,mp.last_seen FROM meeting_presence mp JOIN users u ON mp.user_id=u.id WHERE mp.meeting_id=? AND mp.last_seen>datetime('now','localtime','-30 seconds') ORDER BY mp.last_seen DESC").bind(id).all();
+    const {results}=await env.DB.prepare("SELECT mp.user_id,u.username,u.display_name,mp.last_seen FROM meeting_presence mp JOIN users u ON mp.user_id=u.id WHERE mp.meeting_id=? AND mp.last_seen>datetime('now','localtime','-30 seconds') ORDER BY mp.last_seen DESC").bind(id).all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/meetings/:id/presence', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params;
     await env.DB.prepare("INSERT INTO meeting_presence (meeting_id,user_id,last_seen) VALUES (?,?,datetime('now','localtime')) ON CONFLICT(meeting_id,user_id) DO UPDATE SET last_seen=datetime('now','localtime')").bind(id,user.id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 // ===================== PUBLIC CHAT =====================
 get('/api/chat', async (request, env) => {
   try { const user=await requireAuth(request,env);
     const {before_id,limit}=extractPagination(request.url);
-    let q="SELECT mc.id,mc.content,mc.message_type,mc.meta_data,mc.created_at,u.id as user_id,u.username,u.display_name,u.avatar_url FROM chat_messages mc JOIN users u ON mc.user_id=u.id WHERE 1=1";
+    let q="SELECT mc.id,mc.content,mc.message_type,mc.meta_data,mc.created_at,u.id as user_id,u.username,u.display_name FROM public_chat_messages mc JOIN users u ON mc.user_id=u.id WHERE 1=1";
     const p=[];
     if (before_id) { q+=' AND mc.id<?'; p.push(before_id); }
     q+=' ORDER BY mc.id DESC LIMIT ?'; p.push(limit);
     const {results}=await env.DB.prepare(q).bind(...p).all();
     return jsonResponse(results.reverse());
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/chat', async (request, env) => {
@@ -383,7 +397,7 @@ post('/api/chat', async (request, env) => {
     if (!content||content.trim().length===0) return errorResponse('Content required',400);
     content=content.trim().substring(0,5000);
     const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):null;
-    const {results}=await env.DB.prepare("INSERT INTO chat_messages (user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(user.id,content,mt,md).all();
+    const {results}=await env.DB.prepare("INSERT INTO public_chat_messages (user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(user.id,content,mt,md).all();
     let todoCreated=null;
     if (content.startsWith('/todo ')) {
       const tt=content.replace('/todo ','').trim();
@@ -393,29 +407,29 @@ post('/api/chat', async (request, env) => {
       }
     }
     return jsonResponse({message:results[0],todo:todoCreated},201);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/chat/presence', async (request, env) => {
   try { const user=await requireAuth(request,env);
-    const {results}=await env.DB.prepare("SELECT cp.user_id,u.username,u.display_name,u.avatar_url,cp.last_seen FROM chat_presence cp JOIN users u ON cp.user_id=u.id WHERE cp.last_seen>datetime('now','localtime','-30 seconds') ORDER BY cp.last_seen DESC").all();
+    const {results}=await env.DB.prepare("SELECT cp.user_id,u.username,u.display_name,cp.last_seen FROM public_chat_presence cp JOIN users u ON cp.user_id=u.id WHERE cp.last_seen>datetime('now','localtime','-30 seconds') ORDER BY cp.last_seen DESC").all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/chat/presence', async (request, env) => {
   try { const user=await requireAuth(request,env);
-    await env.DB.prepare("INSERT INTO chat_presence (user_id,last_seen) VALUES (?,datetime('now','localtime')) ON CONFLICT(user_id) DO UPDATE SET last_seen=datetime('now','localtime')").bind(user.id).run();
+    await env.DB.prepare("INSERT INTO public_chat_presence (user_id,last_seen) VALUES (?,datetime('now','localtime')) ON CONFLICT(user_id) DO UPDATE SET last_seen=datetime('now','localtime')").bind(user.id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 // ===================== DOCUMENTS =====================
 get('/api/documents', async (request, env) => {
   try { const user=await requireAuth(request,env);
-    const {results}=await env.DB.prepare('SELECT id,title,doc_type,summary,created_at,updated_at,version FROM documents WHERE user_id=? ORDER BY updated_at DESC').bind(user.id).all();
+    const {results}=await env.DB.prepare('SELECT id,title,doc_type,created_at,updated_at,version FROM shared_documents WHERE user_id=? ORDER BY updated_at DESC').bind(user.id).all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/documents', async (request, env) => {
@@ -423,100 +437,100 @@ post('/api/documents', async (request, env) => {
     if (!title||title.trim().length===0) return errorResponse('Title required',400);
     const st=title.trim().substring(0,300); const dt=doc_type||'markdown';
     if (id) {
-      const existing=await env.DB.prepare('SELECT * FROM documents WHERE id=? AND user_id=?').bind(id,user.id).all();
+      const existing=await env.DB.prepare('SELECT * FROM shared_documents WHERE id=? AND user_id=?').bind(id,user.id).all();
       if (existing.results.length===0) return errorResponse('Not found',404);
       const d=existing.results[0]; const nv=(d.version||0)+1;
-      const ns=summary!==undefined?summary:d.summary; const nc=content!==undefined?content:d.content;
-      await env.DB.prepare("UPDATE documents SET title=?,content=?,doc_type=?,summary=?,version=?,updated_at=datetime('now','localtime') WHERE id=? AND user_id=?").bind(st,nc,dt,ns,nv,id,user.id).run();
-      if (content!==undefined) { await env.DB.prepare("INSERT INTO document_revisions (document_id,version,content,summary,created_by,created_at) VALUES (?,?,?,?,?,datetime('now','localtime'))").bind(id,nv,content,ns||null,user.id).run(); }
-      const {results}=await env.DB.prepare('SELECT * FROM documents WHERE id=?').bind(id).all();
+      const nc=content!==undefined?content:d.content;
+      await env.DB.prepare("UPDATE shared_documents SET title=?,content=?,doc_type=?,version=?,updated_at=datetime('now','localtime') WHERE id=? AND user_id=?").bind(st,nc,dt,nv,id,user.id).run();
+      if (content!==undefined) { await env.DB.prepare("INSERT INTO document_revisions (document_id,version,content,summary,user_id,created_at) VALUES (?,?,?,?,?,datetime('now','localtime'))").bind(id,nv,content,ns||null,user.id).run(); }
+      const {results}=await env.DB.prepare('SELECT * FROM shared_documents WHERE id=?').bind(id).all();
       return jsonResponse(results[0]);
     } else {
-      const {results}=await env.DB.prepare("INSERT INTO documents (user_id,title,content,doc_type,summary,version,created_at,updated_at) VALUES (?,?,?,?,?,1,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,content,doc_type,summary,version,created_at").bind(user.id,st,content||'',dt,summary||null).all();
+      const {results}=await env.DB.prepare("INSERT INTO shared_documents (user_id,title,content,doc_type,version,created_at,updated_at) VALUES (?,?,?,?,1,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,content,doc_type,version,created_at").bind(user.id,st,content||'',dt,summary||null).all();
       const d=results[0];
-      await env.DB.prepare("INSERT INTO document_revisions (document_id,version,content,summary,created_by,created_at) VALUES (?,1,?,?,?,datetime('now','localtime'))").bind(d.id,content||'',summary||null,user.id).run();
+      await env.DB.prepare("INSERT INTO document_revisions (document_id,version,content,summary,user_id,created_at) VALUES (?,1,?,?,?,datetime('now','localtime'))").bind(d.id,content||'',summary||null,user.id).run();
       return jsonResponse(d,201);
     }
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/documents/:id', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params;
-    const {results}=await env.DB.prepare("SELECT d.*,u.username as owner_name FROM documents d JOIN users u ON d.user_id=u.id WHERE d.id=? AND (d.user_id=? OR ?='admin')").bind(id,user.id,user.role).all();
+    const {results}=await env.DB.prepare("SELECT d.*,u.username as owner_name FROM shared_documents d JOIN users u ON d.user_id=u.id WHERE d.id=? AND (d.user_id=? OR ?='admin')").bind(id,user.id,user.role).all();
     if (results.length===0) return errorResponse('Not found',404);
     return jsonResponse(results[0]);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/documents/share/:token', async (request, env) => {
   try { const {token}=request.params;
-    const {results}=await env.DB.prepare("SELECT d.id,d.title,d.content,d.doc_type,d.summary,d.updated_at,u.username as owner_name FROM documents d JOIN users u ON d.user_id=u.id WHERE d.share_token=?").bind(token).all();
+    const {results}=await env.DB.prepare("SELECT d.id,d.title,d.content,d.doc_type,d.updated_at,u.username as owner_name FROM shared_documents d JOIN users u ON d.user_id=u.id WHERE d.share_token=?").bind(token).all();
     if (results.length===0) return errorResponse('Not found',404);
     return jsonResponse(results[0]);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 del('/api/documents/:id', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params;
-    const existing=await env.DB.prepare('SELECT id FROM documents WHERE id=? AND user_id=?').bind(id,user.id).all();
+    const existing=await env.DB.prepare('SELECT id FROM shared_documents WHERE id=? AND user_id=?').bind(id,user.id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
     await env.DB.prepare('DELETE FROM document_revisions WHERE document_id=?').bind(id).run();
-    await env.DB.prepare('DELETE FROM documents WHERE id=? AND user_id=?').bind(id,user.id).run();
+    await env.DB.prepare('DELETE FROM shared_documents WHERE id=? AND user_id=?').bind(id,user.id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/documents/:id/share', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params; const {action}=await request.json();
-    const existing=await env.DB.prepare('SELECT id FROM documents WHERE id=? AND user_id=?').bind(id,user.id).all();
+    const existing=await env.DB.prepare('SELECT id FROM shared_documents WHERE id=? AND user_id=?').bind(id,user.id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
-    if (action==='generate') { const tb=new Uint8Array(16); crypto.getRandomValues(tb); const st=Array.from(tb).map(b=>b.toString(16).padStart(2,'0')).join(''); await env.DB.prepare('UPDATE documents SET share_token=? WHERE id=?').bind(st,id).run(); return jsonResponse({success:true,share_token:st}); }
-    else if (action==='revoke') { await env.DB.prepare('UPDATE documents SET share_token=NULL WHERE id=?').bind(id).run(); return jsonResponse({success:true,share_token:null}); }
+    if (action==='generate') { const tb=new Uint8Array(16); crypto.getRandomValues(tb); const st=Array.from(tb).map(b=>b.toString(16).padStart(2,'0')).join(''); await env.DB.prepare('UPDATE shared_documents SET share_token=? WHERE id=?').bind(st,id).run(); return jsonResponse({success:true,share_token:st}); }
+    else if (action==='revoke') { await env.DB.prepare('UPDATE shared_documents SET share_token=NULL WHERE id=?').bind(id).run(); return jsonResponse({success:true,share_token:null}); }
     return errorResponse('Invalid action',400);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/documents/:id/revisions', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params;
-    const existing=await env.DB.prepare('SELECT id FROM documents WHERE id=? AND user_id=?').bind(id,user.id).all();
+    const existing=await env.DB.prepare('SELECT id FROM shared_documents WHERE id=? AND user_id=?').bind(id,user.id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
-    const {results}=await env.DB.prepare("SELECT dr.id,dr.version,dr.summary,dr.created_at,u.username as created_by_name FROM document_revisions dr JOIN users u ON dr.created_by=u.id WHERE dr.document_id=? ORDER BY dr.version DESC").bind(id).all();
+    const {results}=await env.DB.prepare("SELECT dr.id,dr.version,dr.summary,dr.created_at,u.username as created_by_name FROM document_revisions dr JOIN users u ON dr.user_id=u.id WHERE dr.document_id=? ORDER BY dr.version DESC").bind(id).all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 // ===================== BOARD MESSAGES =====================
 get('/api/messages/count', async (request, env) => {
   try { const user=await requireAuth(request,env);
-    const {results}=await env.DB.prepare("SELECT COUNT(*) as count FROM board_messages WHERE date(created_at)=date('now','localtime')").all();
+    const {results}=await env.DB.prepare("SELECT COUNT(*) as count FROM messages WHERE date(created_at)=date('now','localtime')").all();
     return jsonResponse(results[0]);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/messages', async (request, env) => {
   try { const user=await requireAuth(request,env);
-    const {results}=await env.DB.prepare("SELECT bm.id,bm.content,bm.created_at,u.id as user_id,u.username,u.display_name,u.avatar_url FROM board_messages bm JOIN users u ON bm.user_id=u.id ORDER BY bm.created_at DESC LIMIT 100").all();
+    const {results}=await env.DB.prepare("SELECT bm.id,bm.content,bm.created_at,u.id as user_id,u.username,u.display_name FROM messages bm JOIN users u ON bm.user_id=u.id ORDER BY bm.created_at DESC LIMIT 100").all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/messages', async (request, env) => {
   try { const user=await requireAuth(request,env); const {content}=await request.json();
     if (!content||content.trim().length===0) return errorResponse('Content required',400);
-    const {results}=await env.DB.prepare("INSERT INTO board_messages (user_id,content,created_at) VALUES (?,?,datetime('now','localtime')) RETURNING id,content,created_at").bind(user.id,content.trim().substring(0,2000)).all();
+    const {results}=await env.DB.prepare("INSERT INTO messages (user_id,content,created_at) VALUES (?,?,datetime('now','localtime')) RETURNING id,content,created_at").bind(user.id,content.trim().substring(0,2000)).all();
     return jsonResponse(results[0],201);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 del('/api/messages/:id', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params;
-    const existing=await env.DB.prepare('SELECT * FROM board_messages WHERE id=?').bind(id).all();
+    const existing=await env.DB.prepare('SELECT * FROM messages WHERE id=?').bind(id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
     const msg=existing.results[0];
     if (msg.user_id!==user.id&&user.role!=='admin') return errorResponse('Forbidden',403);
-    await env.DB.prepare('DELETE FROM board_messages WHERE id=?').bind(id).run();
+    await env.DB.prepare('DELETE FROM messages WHERE id=?').bind(id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 // ===================== LOGS =====================
@@ -529,7 +543,7 @@ get('/api/logs', async (request, env) => {
     q+=' ORDER BY l.created_at DESC LIMIT 200';
     const {results}=await env.DB.prepare(q).bind(...p).all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/logs', async (request, env) => {
@@ -538,7 +552,7 @@ post('/api/logs', async (request, env) => {
     const ld=log_date||new Date().toISOString().split('T')[0];
     const {results}=await env.DB.prepare("INSERT INTO logs (user_id,content,log_date,created_at) VALUES (?,?,?,datetime('now','localtime')) RETURNING id,content,log_date,created_at").bind(user.id,content.trim().substring(0,5000),ld).all();
     return jsonResponse(results[0],201);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 del('/api/logs/:id', async (request, env) => {
@@ -549,14 +563,14 @@ del('/api/logs/:id', async (request, env) => {
     if (log.user_id!==user.id&&user.role!=='admin') return errorResponse('Forbidden',403);
     await env.DB.prepare('DELETE FROM logs WHERE id=?').bind(id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 // ===================== ANNOUNCEMENTS =====================
 get('/api/announcements', async (request, env) => {
-  try { const {results}=await env.DB.prepare("SELECT a.id,a.title,a.content,a.is_scroll,a.scroll_content,a.created_at,a.updated_at,u.username as created_by_name FROM announcements a JOIN users u ON a.created_by=u.id ORDER BY a.created_at DESC").all();
+  try { const {results}=await env.DB.prepare("SELECT a.id,a.title,a.content,a.is_scroll,a.scroll_content,a.created_at,a.updated_at,u.username as created_by_name FROM announcements a JOIN users u ON a.user_id=u.id ORDER BY a.created_at DESC").all();
     return jsonResponse(results);
-  } catch (e) { return errorResponse('Internal error',500); }
+  } catch (e) { return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/announcements', async (request, env) => {
@@ -567,8 +581,8 @@ post('/api/announcements', async (request, env) => {
       if (existing.results.length===0) return errorResponse('Not found',404);
       await env.DB.prepare("UPDATE announcements SET title=?,content=?,is_scroll=?,scroll_content=?,updated_at=datetime('now','localtime') WHERE id=?").bind(title.trim().substring(0,300),content||'',is_scroll?1:0,scroll_content||null,id).run();
       const {results}=await env.DB.prepare('SELECT * FROM announcements WHERE id=?').bind(id).all(); return jsonResponse(results[0]);
-    } else { const {results}=await env.DB.prepare("INSERT INTO announcements (title,content,is_scroll,scroll_content,created_by,created_at,updated_at) VALUES (?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,content,is_scroll,scroll_content,created_at").bind(title.trim().substring(0,300),content||'',is_scroll?1:0,scroll_content||null,user.id).all(); return jsonResponse(results[0],201); }
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+    } else { const {results}=await env.DB.prepare("INSERT INTO announcements (title,content,is_scroll,scroll_content,user_id,created_at,updated_at) VALUES (?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime')) RETURNING id,title,content,is_scroll,scroll_content,created_at").bind(title.trim().substring(0,300),content||'',is_scroll?1:0,scroll_content||null,user.id).all(); return jsonResponse(results[0],201); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 del('/api/announcements/:id', async (request, env) => {
@@ -576,22 +590,22 @@ del('/api/announcements/:id', async (request, env) => {
     const existing=await env.DB.prepare('SELECT id FROM announcements WHERE id=?').bind(id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
     await env.DB.prepare('DELETE FROM announcements WHERE id=?').bind(id).run(); return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 get('/api/scroll-announcement', async (request, env) => {
   try { const {results}=await env.DB.prepare("SELECT scroll_content FROM announcements WHERE is_scroll=1 ORDER BY created_at DESC LIMIT 1").all();
     if (results.length===0) return jsonResponse({scroll_content:null});
     return jsonResponse(results[0]);
-  } catch (e) { return errorResponse('Internal error',500); }
+  } catch (e) { return errorResponse(e.message||'Internal error',500); }
 });
 
 // ===================== ADMIN =====================
 get('/api/admin/users', async (request, env) => {
   try { const user=await requireAuth(request,env); requireAdmin(user);
-    const {results}=await env.DB.prepare('SELECT id,username,role,display_name,email,avatar_url,created_at FROM users ORDER BY created_at DESC').all();
+    const {results}=await env.DB.prepare('SELECT id,username,role,display_name,created_at FROM users ORDER BY created_at DESC').all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/admin/users', async (request, env) => {
@@ -603,7 +617,7 @@ post('/api/admin/users', async (request, env) => {
     const hashed=await hashPassword(password);
     await env.DB.prepare('INSERT INTO users (username,password,role,display_name) VALUES (?,?,?,?)').bind(username,hashed,role||'user',username).run();
     return jsonResponse({success:true},201);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 del('/api/admin/users/:id', async (request, env) => {
@@ -612,12 +626,12 @@ del('/api/admin/users/:id', async (request, env) => {
     const existing=await env.DB.prepare('SELECT id FROM users WHERE id=?').bind(id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
     await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(id).run();
-    await env.DB.prepare('DELETE FROM tokens WHERE user_id=?').bind(id).run();
+    await env.DB.prepare('DELETE FROM auth_tokens WHERE user_id=?').bind(id).run();
     await env.DB.prepare('DELETE FROM todos WHERE user_id=?').bind(id).run();
-    await env.DB.prepare('DELETE FROM documents WHERE user_id=?').bind(id).run();
+    await env.DB.prepare('DELETE FROM shared_documents WHERE user_id=?').bind(id).run();
     await env.DB.prepare('DELETE FROM users WHERE id=?').bind(id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/admin/users/:id/reset', async (request, env) => {
@@ -629,34 +643,52 @@ post('/api/admin/users/:id/reset', async (request, env) => {
     await env.DB.prepare('UPDATE users SET password=? WHERE id=?').bind(hashed,id).run();
     await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 // ===================== TOKENS =====================
 get('/api/tokens', async (request, env) => {
   try { const user=await requireAuth(request,env);
-    const {results}=await env.DB.prepare('SELECT id,label,last_used_at,created_at FROM tokens WHERE user_id=? AND revoked=0 ORDER BY created_at DESC').bind(user.id).all();
+    const {results}=await env.DB.prepare('SELECT id,label,last_used_at,created_at FROM auth_tokens WHERE user_id=? ORDER BY created_at DESC').bind(user.id).all();
     return jsonResponse(results);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 post('/api/tokens', async (request, env) => {
   try { const user=await requireAuth(request,env); const {label}=await request.json();
     const tb=new Uint8Array(32); crypto.getRandomValues(tb);
     const token=Array.from(tb).map(b=>b.toString(16).padStart(2,'0')).join('');
-    const {results}=await env.DB.prepare("INSERT INTO tokens (user_id,token,label,revoked,created_at) VALUES (?,?,?,0,datetime('now','localtime')) RETURNING id,label,created_at").bind(user.id,token,label||'API Token').all();
+    const {results}=await env.DB.prepare("INSERT INTO auth_tokens (user_id,token,label,created_at) VALUES (?,?,?,datetime('now','localtime')) RETURNING id,label,created_at").bind(user.id,token,label||'API Token').all();
     return jsonResponse({...results[0],token},201);
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
 
 del('/api/tokens/:id', async (request, env) => {
   try { const user=await requireAuth(request,env); const {id}=request.params;
-    const existing=await env.DB.prepare('SELECT id FROM tokens WHERE id=? AND user_id=?').bind(id,user.id).all();
+    const existing=await env.DB.prepare('SELECT id FROM auth_tokens WHERE id=? AND user_id=?').bind(id,user.id).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
-    await env.DB.prepare('UPDATE tokens SET revoked=1 WHERE id=? AND user_id=?').bind(id,user.id).run();
+    await env.DB.prepare('DELETE FROM auth_tokens WHERE id=? AND user_id=?').bind(id,user.id).run();
     return jsonResponse({success:true});
-  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse('Internal error',500); }
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });
+
+// ===================== ROUTE ALIASES (frontend compat) =====================
+get('/api/auth/tokens', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
+post('/api/auth/tokens', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
+get('/api/users', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/users','/api/admin/users'), request), env); });
+del('/api/auth/tokens/:id', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
+post('/api/admin/users/:id/reset-password', async (request, env) => {
+  try { const user=await requireAuth(request,env); requireAdmin(user); const {id}=request.params; const {password}=await request.json();
+    if (!password||password.length<4) return errorResponse('Password too short',400);
+    const existing=await env.DB.prepare('SELECT id FROM users WHERE id=?').bind(id).all();
+    if (existing.results.length===0) return errorResponse('Not found',404);
+    const hashed=await hashPassword(password);
+    await env.DB.prepare('UPDATE users SET password=? WHERE id=?').bind(hashed,id).run();
+    await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(id).run();
+    return jsonResponse({success:true});
+  } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
+});
+get('/api/auth/tokens', async (request, env) => { return handleRequest(new Request(new URL(request.url).href.replace('/api/auth/tokens','/api/tokens'), request), env); });
 
 // ===================== LINK PREVIEW =====================
 get('/api/link-preview', async (request, env) => {
@@ -673,7 +705,7 @@ get('/api/link-preview', async (request, env) => {
     const ogTitle=html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i)?.[1]||html.match(/<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:title["']/i)?.[1]||'';
     const favicon=html.match(/<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']*)["']/i)?.[1]||'';
     return jsonResponse({url:targetUrl,title:ogTitle||title,description:desc,image:ogImage,favicon:favicon?new URL(favicon,targetUrl).href:`${parsedUrl.origin}/favicon.ico`});
-  } catch(e) { if(e.status) return errorResponse(e.message,e.status); return errorResponse('Failed to fetch preview',500); }
+  } catch(e) { if(e.status) return errorResponse(e.message,e.status); return errorResponse('Failed to fetch preview',500,e.message); }
 });
 
 // ===================== EXPORT =====================
