@@ -1309,7 +1309,8 @@
             meetingChatState.pollTimer = setInterval(pollMeetingMessages, 2000);
             meetingChatState.presenceTimer = setInterval(sendMeetingPresence, 30000);
             scrollChatToBottom(document.getElementById('chatMessages'));
-            document.getElementById('authPanel').style.display = 'block';
+            const ap = document.getElementById('authPanel');
+            if (ap) ap.style.display = 'block';
             loadTokens('tokenList');
         }
 
@@ -1319,7 +1320,8 @@
             meetingChatState.pollTimer = null;
             meetingChatState.presenceTimer = null;
             meetingChatState.meetingId = null;
-            document.getElementById('authPanel').style.display = 'none';
+            const authPanel = document.getElementById('authPanel');
+            if (authPanel) authPanel.style.display = 'none';
         }
 
         async function pollMeetingMessages() {
