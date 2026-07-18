@@ -6,19 +6,18 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "forge-workspace-db"
-database_id = ""
+database_id = "bf49d06e-45a2-4eb3-b210-5cd22992257e"
 
 [env.production]
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "forge-workspace-db"
-database_id = ""
+database_id = "bf49d06e-45a2-4eb3-b210-5cd22992257e"
 
 [env.preview]
 [[env.preview.d1_databases]]
 binding = "DB"
-database_name = "forge-workspace-db-preview"
-database_id = ""
+database_name = "forge-workspace-db"
+database_id = "bf49d06e-45a2-4eb3-b210-5cd22992257e"
 
-[pages]
 pages_build_output_dir = "static"

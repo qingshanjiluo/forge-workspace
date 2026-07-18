@@ -1,6 +1,6 @@
-import { Router, createCors, error, json } from 'itty-router';
+import { Router, cors, error, json } from 'itty-router';
 
-const { preflight, corsify } = createCors({
+const { preflight, corsify } = cors({
   origins: ['*'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
