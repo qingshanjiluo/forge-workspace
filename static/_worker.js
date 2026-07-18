@@ -449,8 +449,9 @@ post('/api/meetings/:id/chat', async (request, env) => {
     let {content,message_type,meta_data}=await request.json();
     if (!content||content.trim().length===0) return errorResponse('Content required',400);
     await env.DB.prepare('SELECT id FROM meetings WHERE id=?').bind(id).all();
-    content=content.trim().substring(0,5000);
-        const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):'{}';
+        const mt=message_type||'text';
+        content = (mt==='image') ? content : content.trim().substring(0,5000);
+        const md=meta_data?JSON.stringify(meta_data):'{}';
         if (mt==='image'&&content&&content.length>200000) return errorResponse('Image too large',400);
     const {results}=await env.DB.prepare("INSERT INTO meeting_messages (meeting_id,user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(id,user.id,content,mt,md).all();
     let todoCreated=null;
@@ -497,8 +498,9 @@ post('/api/chat', async (request, env) => {
   try { const user=await requireAuth(request,env);
     let {content,message_type,meta_data}=await request.json();
     if (!content||content.trim().length===0) return errorResponse('Content required',400);
-    content=content.trim().substring(0,5000);
-        const mt=message_type||'text'; const md=meta_data?JSON.stringify(meta_data):'{}';
+        const mt=message_type||'text';
+        content = (mt==='image') ? content : content.trim().substring(0,5000);
+        const md=meta_data?JSON.stringify(meta_data):'{}';
         if (mt==='image'&&content&&content.length>200000) return errorResponse('Image too large',400);
     const {results}=await env.DB.prepare("INSERT INTO public_chat_messages (user_id,content,message_type,meta_data,created_at) VALUES (?,?,?,?,datetime('now','localtime')) RETURNING id,content,message_type,meta_data,created_at").bind(user.id,content,mt,md).all();
     let todoCreated=null;
@@ -745,14 +747,26 @@ post('/api/admin/users', async (request, env) => {
 
 del('/api/admin/users/:id', async (request, env) => {
   try { const user=await requireAuth(request,env); requireAdmin(user); const {id}=request.params;
-    if (parseInt(id)===user.id) return errorResponse('Cannot delete yourself',400);
-    const existing=await env.DB.prepare('SELECT id FROM users WHERE id=?').bind(id).all();
+    const uid = parseInt(id);
+    if (uid===user.id) return errorResponse('Cannot delete yourself',400);
+    const existing=await env.DB.prepare('SELECT id FROM users WHERE id=?').bind(uid).all();
     if (existing.results.length===0) return errorResponse('Not found',404);
-    await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(id).run();
-    await env.DB.prepare('DELETE FROM auth_tokens WHERE user_id=?').bind(id).run();
-    await env.DB.prepare('DELETE FROM todos WHERE user_id=?').bind(id).run();
-    await env.DB.prepare('DELETE FROM shared_documents WHERE user_id=?').bind(id).run();
-    await env.DB.prepare('DELETE FROM users WHERE id=?').bind(id).run();
+    await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM auth_tokens WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM todos WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM todo_updates WHERE todo_id IN (SELECT id FROM todos WHERE user_id=?)').bind(uid).run();
+    await env.DB.prepare('DELETE FROM shared_documents WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM work_logs WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM messages WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM meeting_presence WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM public_chat_presence WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM drawing_participants WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM meeting_messages WHERE user_id=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM public_chat_messages WHERE user_id=?').bind(uid).run();
+    // transfer ownership of canvases they created; drop canvases with no remaining participants
+    await env.DB.prepare("UPDATE drawing_canvases SET owner_id=created_by WHERE owner_id=? AND created_by!=?").bind(uid, uid).run();
+    await env.DB.prepare('DELETE FROM drawing_canvases WHERE created_by=?').bind(uid).run();
+    await env.DB.prepare('DELETE FROM users WHERE id=?').bind(uid).run();
     return jsonResponse({success:true});
   } catch (e) { if (e.status) return errorResponse(e.message,e.status); return errorResponse(e.message||'Internal error',500); }
 });

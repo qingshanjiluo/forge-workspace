@@ -2931,6 +2931,7 @@
                                 ${groups ? groups.map(g => `<option value="${g.id}" ${u.group_id===g.id?'selected':''}>${g.name}</option>`).join('') : ''}
                             </select>
                             <button class="reset-pwd" data-id="${u.id}" data-name="${escapeHtml(u.username)}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;margin-left:8px;"><i class="fas fa-key"></i> 重置密码</button>
+                            ${u.id!==currentUser.id ? `<button class="del-user" data-id="${u.id}" data-name="${escapeHtml(u.username)}" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:12px;margin-left:8px;"><i class="fas fa-trash-alt"></i> 删除</button>` : ''}
                         </div>
                     </div>`;
                 }).join('');
@@ -2941,6 +2942,19 @@
                         const data = await API.post(`/api/admin/users/${this.dataset.id}/reset-password`, { password: newPwd });
                         if (data && data.success) alert('密码已重置');
                         else alert('错误：' + ((data && data.error) || '未知'));
+                    });
+                });
+                container.querySelectorAll('.del-user').forEach(btn => {
+                    btn.addEventListener('click', async function() {
+                        const name = this.dataset.name;
+                        customConfirm('确认删除成员「' + name + '」？该成员的所有数据（待办、日志、消息、画布等）将一并清除，且不可恢复。', async (ok) => {
+                            if (!ok) return;
+                            try {
+                                const data = await API.del(`/api/admin/users/${this.dataset.id}`);
+                                if (data && data.success) { alert('成员已删除'); loadAdminUsers(); }
+                                else alert('删除失败：' + ((data && data.error) || '未知'));
+                            } catch (e) { alert('删除失败'); }
+                        });
                     });
                 });
             } catch (_) {}
